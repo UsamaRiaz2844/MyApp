@@ -1,188 +1,127 @@
-# Deploy Pronto for free + install it as an Android app
+# Deploy Pronto for free (no credit card) + install it as an Android app
 
-This guide takes Pronto from your laptop to a real deployment two people can use
-from anywhere, then turns it into an installable Android **APK** — all on free
-tiers, no credit card, no Android SDK on your machine.
+Pronto now runs on **Supabase** (Postgres + Realtime + Auth) with the frontend on
+**GitHub Pages**. There is **no server to keep alive**, and **no credit card** anywhere.
 
-**Your stack:**
+| Piece | Service | Cost | Card? |
+|---|---|---|---|
+| Database + realtime + auth | **Supabase** free tier | Free forever | ❌ none |
+| Frontend (PWA) | **GitHub Pages** | Free | ❌ none |
+| Android APK | **PWABuilder.com** | Free | ❌ none |
 
-| Piece      | Service              | Cost | You already have it? |
-|------------|----------------------|------|----------------------|
-| Database   | MongoDB Atlas (M0)   | Free | ✅ yes               |
-| Backend    | Render (web service) | Free | create with GitHub   |
-| Frontend   | Render (static site) | Free | same account         |
-| Android APK| PWABuilder.com       | Free | nothing to install   |
-| Code host  | GitHub               | Free | ✅ yes               |
+> The old `server/` folder (Express + Socket.IO + Mongo) is **no longer used** — Supabase
+> replaces it. You can ignore it, and you no longer need MongoDB Atlas.
 
-Total new signups: **just Render** — and you can log in to Render *with your
-GitHub account*, so it's basically one click.
+Your repo: **`github.com/UsamaRiaz2844/MyApp`** · Your app will live at
+**`https://usamariaz2844.github.io/MyApp/`**
 
 ---
 
-## Step 0 — Push this project to GitHub (2 min)
+## Step 1 — Create a Supabase project (~3 min, no card)
 
-Render deploys from a GitHub repo.
+1. Go to <https://supabase.com> → **Start your project** → sign in (GitHub works).
+2. **New project**. Pick a name (e.g. `pronto`), set a database password (save it), choose a region near you, **Create**. Wait ~2 min for it to provision.
 
-```bash
-cd D:/App
-git init
-git add .
-git commit -m "Pronto chat app"
-```
+## Step 2 — Create the database (run one SQL script)
 
-Create a new **empty** repo on GitHub (no README), then:
+1. In your project, open the **SQL Editor** (left sidebar) → **New query**.
+2. Open [`supabase/schema.sql`](supabase/schema.sql) from this repo, copy **all** of it, paste, and click **Run**. It should finish with "Success".
+   - This creates the tables, security rules, the late-reply trigger, and turns on realtime.
 
-```bash
-git remote add origin https://github.com/<your-username>/pronto.git
-git branch -M main
-git push -u origin main
-```
+## Step 3 — Turn OFF email confirmation (important)
 
-> `.env` files are gitignored, so your secrets are **not** pushed. Good.
+Pronto uses username-only login, so there are no real emails to confirm.
 
----
+1. Left sidebar → **Authentication** → **Sign In / Providers** (or **Providers → Email**).
+2. Find **"Confirm email"** and turn it **OFF**. Save.
+   - (Leave "Allow new users to sign up" **ON**.)
 
-## Step 1 — Get your MongoDB connection string (you have Atlas)
+## Step 4 — Copy your API keys
 
-1. In Atlas, open your free **M0 cluster** (create one if you haven't:
-   *Build a Database → M0 → no card*).
-2. **Database Access** → make sure you have a DB user + password (save them).
-3. **Network Access** → **Add IP Address** → **Allow Access From Anywhere**
-   (`0.0.0.0/0`). Render's servers need this.
-4. **Connect → Drivers** → copy the string. Insert your password and a DB name
-   (`pronto`) right after `.net/`:
+1. Left sidebar → **Project Settings** (gear) → **API**.
+2. Copy two values:
+   - **Project URL** → looks like `https://abcdxyz.supabase.co`
+   - **anon public** key → a long `eyJ...` string (safe to expose; RLS protects data)
 
-   ```
-   mongodb+srv://<user>:<password>@cluster0.xxxxx.mongodb.net/pronto?retryWrites=true&w=majority
-   ```
-
-Keep this handy for the next step.
+Keep these for the next step.
 
 ---
 
-## Step 2 — Deploy both services on Render (Blueprint, ~5 min)
+## Step 5 — Give GitHub the keys + turn on Pages (~2 min)
 
-This repo ships a `render.yaml` that deploys **both** the backend and frontend
-and wires them together automatically.
+In your repo **`UsamaRiaz2844/MyApp`** on github.com:
 
-1. Go to <https://dashboard.render.com> → **Sign in with GitHub**.
-2. **New +** → **Blueprint**.
-3. Pick your `pronto` repo. Render reads `render.yaml` and shows two services:
-   `pronto-server` (backend) and `pronto-client` (frontend).
-4. It will prompt for **MONGODB_URI** — paste the string from Step 1.
-   (`JWT_SECRET` is auto-generated; `CLIENT_ORIGIN` defaults to `*`.)
-5. Click **Apply** / **Create**. Wait for both to go **Live** (first build a few min).
+1. **Settings → Secrets and variables → Actions → New repository secret.** Add two:
+   - Name `VITE_SUPABASE_URL`, value = your Project URL
+   - Name `VITE_SUPABASE_ANON_KEY`, value = your anon public key
+2. **Settings → Pages → Build and deployment → Source: "GitHub Actions".**
 
-You'll get two URLs, e.g.:
-
-- Backend:  `https://pronto-server.onrender.com`
-- Frontend: `https://pronto-client.onrender.com`   ← **this is your app**
-
-**Verify the backend:** open `https://pronto-server.onrender.com/api/health` —
-you should see `{"ok":true}`.
-
-**Verify the app:** open the frontend URL in your phone/desktop browser,
-register a username, and it should work end to end.
-
-> **Prefer clicking over the blueprint?** You can instead create the two
-> services manually: a **Web Service** with root dir `server`, build
-> `npm install`, start `npm start`; and a **Static Site** with root dir
-> `client`, build `npm install && npm run build`, publish dir `dist`, and an
-> env var `VITE_API_URL` = your backend URL. The blueprint just does this for you.
+That's all the account/settings work — the rest is automatic.
 
 ---
 
-## Step 3 — (Optional) keep the backend awake
+## Step 6 — Deploy (automatic)
 
-Render's free backend sleeps after ~15 min idle and cold-starts (~50s) on the
-next open. For a snappier experience, ping it every ~10 min for free:
+The moment the secrets exist and Pages is set to "GitHub Actions", the included
+workflow ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)) builds and
+publishes the app. It runs on every push; you can also trigger it manually:
 
-1. Create a free monitor at <https://uptimerobot.com> (or cron-job.org).
-2. Monitor type **HTTP(s)**, URL = `https://pronto-server.onrender.com/api/health`,
-   interval 5–10 min.
+- Repo → **Actions** tab → **Deploy Pronto to GitHub Pages** → **Run workflow**.
 
-That keeps it warm within Render's free monthly hours. (Skip this if you don't
-mind a one-time ~50s wake when you first open the app.)
+When it goes green, open **`https://usamariaz2844.github.io/MyApp/`**, register a
+username, and it works. Open it in a second browser/incognito, register a different
+username, search that username, and chat — messages, typing, seen ticks, presence,
+and the ⏱ late-reply timer should all be live.
 
 ---
 
-## Step 4 — Turn the PWA into an Android APK (PWABuilder, ~5 min)
-
-Your frontend is already a full PWA, so this needs **no Android tools**.
+## Step 7 — Turn the PWA into an Android APK (PWABuilder, ~5 min)
 
 1. Go to <https://www.pwabuilder.com>.
-2. Paste your **frontend URL** (`https://pronto-client.onrender.com`) → **Start**.
-   It scores the PWA (manifest + service worker should pass green).
-3. Click **Package For Stores** → **Android**.
-4. Use **Generate Package**. Options:
-   - **Signing key:** choose **"Create new"** — PWABuilder generates and returns
-     a signing key inside the zip. **Keep that zip safe** — you need the same
-     key to ship updates.
-   - Leave the package id as suggested (e.g. `com.pronto.twa`).
-5. Download the zip. Inside you'll find:
-   - `app-release-signed.apk`  ← **install this on the phone**
-   - `assetlinks.json` (+ instructions)
-   - your signing key files
+2. Paste **`https://usamariaz2844.github.io/MyApp/`** → **Start**. Manifest + service worker should score green.
+3. **Package For Stores → Android → Generate Package.**
+   - **Signing key:** choose **"Create new"**. Keep the downloaded zip safe — you need the same key to ship updates.
+4. Download the zip. Inside:
+   - `app-release-signed.apk` ← install this on the phone
+   - `assetlinks.json` ← for full-screen (next step)
 
-### Make it open full-screen (no browser address bar)
+### Optional: hide the browser address bar (Digital Asset Links)
 
-The APK is a Trusted Web Activity — to hide the URL bar, the frontend must serve
-a Digital Asset Links file that matches your APK's signing key.
+1. From the zip, put `assetlinks.json` at `client/public/.well-known/assetlinks.json` in this repo.
+2. Commit + push — the workflow redeploys it. It becomes live at
+   `https://usamariaz2844.github.io/MyApp/.well-known/assetlinks.json`.
 
-1. From the PWABuilder zip, open `assetlinks.json`.
-2. Put it in the app at `client/public/.well-known/assetlinks.json`
-   (create the `.well-known` folder). Commit + push:
-
-   ```bash
-   git add client/public/.well-known/assetlinks.json
-   git commit -m "Add Digital Asset Links for Android TWA"
-   git push
-   ```
-
-   Render auto-redeploys the frontend. Verify it's live at:
-   `https://pronto-client.onrender.com/.well-known/assetlinks.json`
-
-> Send me the `assetlinks.json` contents and I'll place it for you correctly.
+> Send me the `assetlinks.json` contents and I'll place it for you.
 
 ---
 
-## Step 5 — Install on the Android phone(s)
+## Step 8 — Install on the phones
 
-1. Transfer `app-release-signed.apk` to the phone (USB, Google Drive, email, etc.).
-2. Tap it. Android will warn about installing from an unknown source →
-   **Settings → allow this source → Install**.
-3. Open **Pronto** from the app drawer. It runs full-screen like a native app.
-4. Install the **same APK** on the second phone. Register a **different**
-   username on each. You're now chatting between two far-apart users. 🎉
+1. Copy `app-release-signed.apk` to the phone (USB / Drive / email).
+2. Tap it → allow "install from unknown source" → **Install**.
+3. Open **Pronto**, register a username. Install the **same APK** on the second phone with a **different** username. Chat between the two, anywhere in the world. 🎉
 
 ---
 
-## Updating the app later
+## Updating later
 
-- **Backend or frontend code change:** `git push` → Render auto-redeploys.
-- **Frontend content change:** the installed APK loads the live site, so most UI
-  changes appear **without reinstalling** the APK (just reopen the app).
-- **Rebuild the APK** only if you change the app name/icon/package id — reuse the
-  **same signing key** from Step 4 or the update won't install over the old one.
+- Change code → `git push` → the Action rebuilds and redeploys automatically.
+- Because the APK loads the live site, most UI changes appear **without reinstalling** the APK — just reopen it.
+- Rebuild the APK (same signing key) only if you change the app name/icon/package id.
 
 ---
+
+## Free-tier notes
+
+- Supabase pauses a project after **7 days of no activity**; opening the app (any request) wakes it. Using it a couple of times a week keeps it always on.
+- Free tier: 500 MB database, 200 concurrent realtime connections, unlimited months. Way more than a two-person chat needs.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
-| App loads but login fails | Check `https://.../api/health` = `{"ok":true}`. If the backend is asleep, wait ~50s and retry. |
-| CORS / network error | Backend `CLIENT_ORIGIN` should be `*` (default) or exactly your frontend URL. |
-| Messages don't arrive live | Both users must have the app open (delivery is via live socket). Confirm the backend is awake. |
-| PWABuilder scores low | Make sure you pasted the **frontend** URL (not the backend), over `https://`. |
-| APK still shows a URL bar | `assetlinks.json` (Step 4) isn't live yet, or the signing key doesn't match. Re-check the file URL. |
-| First open is slow | That's the free backend cold-starting. Step 3 (UptimeRobot) keeps it warm. |
-
----
-
-## Security note (personal use)
-
-`CLIENT_ORIGIN=*` allows any web origin to call the API. Auth is by bearer token,
-so this is fine for a private two-person app. To lock it down later, set
-`CLIENT_ORIGIN` on `pronto-server` (Render → the service → Environment) to your
-exact frontend URL and redeploy.
+| "sign-in is blocked" on register | Step 3 — turn OFF "Confirm email" in Supabase. |
+| Login/search does nothing | Confirm the two GitHub secrets match your Supabase URL + anon key, then re-run the Action. |
+| Action fails | Open the Actions log; usually a missing secret or Pages not set to "GitHub Actions". |
+| Messages don't appear live | Make sure `schema.sql` ran fully (it enables realtime). Both users must be signed in. |
+| APK shows a URL bar | `assetlinks.json` (Step 7) isn't published yet, or the signing key differs. |

@@ -3,99 +3,38 @@
 Pronto is a simple, fast, one-to-one chat app. Username-only login (no email/phone),
 live presence, read receipts, and a built-in "late-reply" timer between two people.
 
-Stack: **React + Vite (PWA)** frontend, **Node/Express + Socket.IO** backend, **MongoDB** database.
+**Stack:** React + Vite (PWA) frontend · **Supabase** (Postgres + Realtime + Auth) backend.
+There is no separate server to run — Supabase is the backend.
+
+> The `server/` folder (old Express + Socket.IO + MongoDB API) is **legacy and unused**.
+> It's kept for reference only. You do not need Node/Mongo to run or deploy Pronto anymore.
 
 ---
 
-## 1. Get a free MongoDB database (5 minutes)
+## Run it locally (against a Supabase project)
 
-1. Go to https://www.mongodb.com/cloud/atlas/register and create a free account.
-2. Create a new **free (M0) cluster** — 512MB, no credit card required.
-3. Under **Database Access**, create a database user (username + password). Save these.
-4. Under **Network Access**, click **Add IP Address** → **Allow Access From Anywhere** (`0.0.0.0/0`)
-   — simplest for getting started; you can restrict it later.
-5. Click **Connect** on your cluster → **Drivers** → copy the connection string. It looks like:
+1. Create a free Supabase project and run `supabase/schema.sql` in its SQL Editor
+   (see **[DEPLOY.md](DEPLOY.md)** steps 1–4 — it's quick and needs no credit card).
+2. Copy `client/.env.example` to `client/.env` and fill in your Supabase URL + anon key:
    ```
-   mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority
+   VITE_SUPABASE_URL=https://YOUR-ref.supabase.co
+   VITE_SUPABASE_ANON_KEY=your-anon-public-key
    ```
-6. Add a database name to it (e.g. `pronto`) right after `.net/`:
+3. Start the frontend:
+   ```bash
+   cd client
+   npm install
+   npm run dev
    ```
-   mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/pronto?retryWrites=true&w=majority
-   ```
-
-### Where to put it
-
-Open [`server/.env`](server/.env) (copy it from `server/.env.example` if it doesn't exist yet) and set:
-
-```
-MONGODB_URI=mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/pronto?retryWrites=true&w=majority
-JWT_SECRET=<any long random string — this signs login tokens>
-PORT=4000
-CLIENT_ORIGIN=http://localhost:5173
-```
-
-That's the only credential the whole app needs. No Firebase/Supabase keys required.
+4. Open the printed URL (usually http://localhost:5173). Register two different usernames
+   (e.g. a normal window + an incognito window) to test a real conversation.
 
 ---
 
-## 2. Run the backend
+## Deploy it for free + get an Android APK
 
-```bash
-cd server
-npm install
-npm run dev
-```
-
-You should see `MongoDB connected` and `Pronto server listening on port 4000`.
-
-## 3. Run the frontend
-
-```bash
-cd client
-npm install
-npm run dev
-```
-
-Open the printed URL (usually http://localhost:5173) in your browser. Register two different
-usernames (e.g. in a normal window + an incognito window) to test a real conversation between
-two people.
-
-The client reads the backend URL from [`client/.env`](client/.env) (`VITE_API_URL`). It defaults
-to `http://localhost:4000`.
-
----
-
-## 4. Install it on your phone (PWA)
-
-Pronto is a Progressive Web App — no app store needed, and no native build step. To try it on
-your phone right now:
-
-1. Make sure your phone is on the **same WiFi** as your computer.
-2. Find your computer's LAN IP (Windows: run `ipconfig` in PowerShell, look for `IPv4 Address`,
-   e.g. `192.168.1.23`).
-3. In `client/.env`, set:
-   ```
-   VITE_API_URL=http://192.168.1.23:4000
-   ```
-4. In `server/.env`, set:
-   ```
-   CLIENT_ORIGIN=http://192.168.1.23:5173
-   ```
-5. Restart both `npm run dev` processes so the new env vars take effect.
-6. On your phone's browser, go to `http://192.168.1.23:5173`.
-7. **Android (Chrome):** tap the ⋮ menu → "Add to Home screen" / "Install app".
-   **iPhone (Safari):** tap the Share icon → "Add to Home Screen".
-8. Pronto now opens full-screen from your home screen icon, like a real app.
-
-### For permanent, install-from-anywhere access + a real Android APK
-
-Local WiFi hosting only works while your computer is on and both of you are on the same network.
-For a real deployment reachable from anywhere — and an installable Android **APK** you can put on
-two phones — follow **[DEPLOY.md](DEPLOY.md)**.
-
-It walks you through: MongoDB Atlas → deploy backend **and** frontend to Render's free tier from
-GitHub (one `render.yaml` does both) → generate a signed APK with PWABuilder (no Android SDK
-needed) → install on the phones. Totally free, no credit card.
+See **[DEPLOY.md](DEPLOY.md)** — deploy the frontend to GitHub Pages (free, no card) and
+generate an installable Android APK with PWABuilder (no Android SDK needed).
 
 ---
 
@@ -109,10 +48,13 @@ needed) → install on the phones. Totally free, no credit card.
   "hi"/"hi" later that day starts counting again.
 - Tap the ⏱ badge in a chat's header to see the full day-by-day history for that conversation.
 
+(This logic now lives in a Postgres trigger — see `supabase/schema.sql`.)
+
 ## Project structure
 
 ```
-F:/App
-├── server/     Express + Socket.IO + MongoDB API
-└── client/     React + Vite + Tailwind PWA
+D:/App
+├── client/     React + Vite + Tailwind PWA  (the app)
+├── supabase/   schema.sql — run once in your Supabase project
+└── server/     LEGACY, unused (old Express/Mongo/Socket.IO backend)
 ```

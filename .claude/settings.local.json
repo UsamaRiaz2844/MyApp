@@ -24,7 +24,9 @@
       "Bash(curl -s -o /dev/null -w \"backend tunnel: %{http_code}\\\\n\" --max-time 10 https://nebraska-handle-guarantees-found.trycloudflare.com/api/health)",
       "Bash(curl -s -o /dev/null -w \"frontend tunnel: %{http_code}\\\\n\" --max-time 10 https://prize-have-keeps-choosing.trycloudflare.com/)",
       "Bash(curl -s https://prize-have-keeps-choosing.trycloudflare.com/manifest.webmanifest)",
-      "PowerShell(\"--- verify _redirects ---\")"
+      "PowerShell(\"--- verify _redirects ---\")",
+      "WebSearch",
+      "PowerShell(winget install OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1)"
     ]
   }
 }
