@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -H 'Authorization: Bearer __CMDSUB_OUTPUT__' http://localhost:4000/api/messages/6a6369e710a298a7895339f5)",
+      "Bash(node -e ' *)",
+      "Bash(node \"/c/Users/Admin/AppData/Local/Temp/claude/F--App/47d7285d-5731-4e0d-bc75-9a89b49e5236/scratchpad/ali-typing2.js\")",
+      "Bash(node src/index.js)",
+      "Bash(sleep 4 && cat \"/c/Users/Admin/AppData/Local/Temp/claude/F--App/47d7285d-5731-4e0d-bc75-9a89b49e5236/tasks/brrfb46ft.output\")",
+      "Bash(curl -s -H \"Bypass-Tunnel-Reminder: true\" https://six-emus-bet.loca.lt/api/health)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" -H \"Bypass-Tunnel-Reminder: true\" https://hip-moons-admire.loca.lt/)",
+      "Bash(curl -sv -H \"Bypass-Tunnel-Reminder: true\" https://six-emus-bet.loca.lt/api/health)",
+      "Bash(curl -s -o /dev/null -w \"status with tunnel host header: %{http_code}\\\\n\" -H \"Host: hip-moons-admire.loca.lt\" http://localhost:4173/)",
+      "Bash(netstat -ano)",
+      "Bash(taskkill //F //PID 19272)",
+      "Bash(curl -s -o /dev/null -w \"status with tunnel host header \\(local test\\): %{http_code}\\\\n\" -H \"Host: hip-moons-admire.loca.lt\" http://localhost:4173/)",
+      "Bash(curl -s -o /dev/null -w \"frontend tunnel \\(public\\): %{http_code}\\\\n\" -H \"Bypass-Tunnel-Reminder: true\" --max-time 10 https://hip-moons-admire.loca.lt/)",
+      "Bash(tasklist //FI \"WINDOWTITLE eq *\")",
+      "Bash(npx --yes cloudflared tunnel --url http://localhost:4000)",
+      "Bash(tasklist)",
+      "Bash(npx --yes cloudflared tunnel --url http://localhost:4173)",
+      "Bash(npm run *)",
+      "Bash(taskkill //F //PID 2816)",
+      "Bash(taskkill //F //PID 10032)",
+      "Bash(curl -s -o /dev/null -w \"backend tunnel: %{http_code}\\\\n\" --max-time 10 https://nebraska-handle-guarantees-found.trycloudflare.com/api/health)",
+      "Bash(curl -s -o /dev/null -w \"frontend tunnel: %{http_code}\\\\n\" --max-time 10 https://prize-have-keeps-choosing.trycloudflare.com/)",
+      "Bash(curl -s https://prize-have-keeps-choosing.trycloudflare.com/manifest.webmanifest)",
+      "PowerShell(\"--- verify _redirects ---\")"
+    ]
+  }
+}
