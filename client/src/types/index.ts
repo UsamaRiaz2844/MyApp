@@ -29,6 +29,8 @@ export interface ConversationSummary {
   todayLateStats: LateStat | null;
 }
 
+export type AttachmentType = 'image' | 'audio';
+
 export interface ChatMessage {
   id: string;
   conversation: string;
@@ -39,6 +41,9 @@ export interface ChatMessage {
   seenAt: string | null;
   delayMs: number | null;
   isWhisper?: boolean;
+  attachmentUrl?: string | null;
+  attachmentType?: AttachmentType | null;
+  attachmentDurationMs?: number | null;
 }
 
 // messageId -> (userId -> emoji)

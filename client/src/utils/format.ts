@@ -26,6 +26,14 @@ export function formatDuration(ms: number): string {
   return parts.join(' ') || '0s';
 }
 
+// Clock style m:ss for voice-note length / recording timer.
+export function formatClock(ms: number): string {
+  const totalSec = Math.max(0, Math.round((ms || 0) / 1000));
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
 export function formatMessageTime(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });

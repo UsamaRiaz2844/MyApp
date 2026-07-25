@@ -11,8 +11,10 @@ import MessageBubble from '../components/MessageBubble';
 import MessageActions from '../components/MessageActions';
 import EffectsOverlay, { Fx } from '../components/EffectsOverlay';
 import { CHAT_THEMES, getTheme } from '../lib/themes';
-import { formatDayLabel, formatDuration, formatLastSeen } from '../utils/format';
-import type { ChatMessage, LateStat, OtherUser, ReactionMap } from '../types';
+import { formatClock, formatDayLabel, formatDuration, formatLastSeen } from '../utils/format';
+import type { AttachmentType, ChatMessage, LateStat, OtherUser, ReactionMap } from '../types';
+
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 interface LocationState {
   otherUser?: OtherUser;
@@ -43,10 +45,19 @@ export default function ChatRoom() {
   const [actionMsg, setActionMsg] = useState<ChatMessage | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [showThemes, setShowThemes] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [recordMs, setRecordMs] = useState(0);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fxCounter = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<BlobPart[]>([]);
+  const recordStartRef = useRef(0);
+  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordCancelledRef = useRef(false);
 
   const theme = getTheme(themeId);
   const bg = colorMode === 'dark' ? theme.bgDark : theme.bgLight;
@@ -172,6 +183,16 @@ export default function ChatRoom() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length, otherTyping, otherTypingText]);
 
+  // Abandon any in-progress recording if we leave the room.
+  useEffect(() => {
+    return () => {
+      recordCancelledRef.current = true;
+      const rec = recorderRef.current;
+      if (rec && rec.state !== 'inactive') rec.stop();
+      if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+    };
+  }, []);
+
   function handleTextChange(v: string) {
     setText(v);
     if (!socket) return;
@@ -214,6 +235,130 @@ export default function ChatRoom() {
         setMessages((prev) => prev.filter((m) => m.id !== tempId));
       }
     });
+  }
+
+  // --- attachments (image + voice) -----------------------------------------
+  async function sendAttachment(blob: Blob, type: AttachmentType, ext: string, durationMs?: number) {
+    if (!socket || !user) return;
+    const wasWhisper = whisper;
+    setWhisper(false);
+    const localUrl = URL.createObjectURL(blob);
+    const tempId = `temp-${Date.now()}`;
+    const optimistic: ChatMessage = {
+      id: tempId,
+      conversation: conversationId,
+      sender: user.id,
+      receiver: otherUser?.id || '',
+      text: '',
+      createdAt: new Date().toISOString(),
+      seenAt: null,
+      delayMs: null,
+      isWhisper: wasWhisper,
+      attachmentUrl: localUrl,
+      attachmentType: type,
+      attachmentDurationMs: durationMs ?? null,
+    };
+    setMessages((prev) => [...prev, optimistic]);
+    setUploading(true);
+    try {
+      const { url } = await api.uploadMedia(conversationId, blob, ext);
+      socket.emit(
+        'message:send',
+        {
+          conversationId,
+          text: '',
+          isWhisper: wasWhisper,
+          attachmentUrl: url,
+          attachmentType: type,
+          attachmentDurationMs: durationMs,
+        },
+        (res: any) => {
+          URL.revokeObjectURL(localUrl);
+          if (res?.message) {
+            setMessages((prev) => {
+              const already = prev.some((m) => m.id === res.message.id);
+              if (already) return prev.filter((m) => m.id !== tempId);
+              return prev.map((m) => (m.id === tempId ? res.message : m));
+            });
+          } else {
+            setMessages((prev) => prev.filter((m) => m.id !== tempId));
+            window.alert(res?.error || 'Failed to send attachment.');
+          }
+        }
+      );
+    } catch (err: any) {
+      URL.revokeObjectURL(localUrl);
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      window.alert(err?.message || 'Upload failed. Has the media.sql migration been run?');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function pickImage() {
+    fileInputRef.current?.click();
+  }
+  async function onImageSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow picking the same file again
+    if (!file) return;
+    if (!file.type.startsWith('image/')) return window.alert('Please choose an image file.');
+    if (file.size > MAX_IMAGE_BYTES) return window.alert('Image is too large (max 10 MB).');
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+    await sendAttachment(file, 'image', ext);
+  }
+
+  async function startRecording() {
+    if (recording) return;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      return window.alert('Voice recording is not supported on this device.');
+    }
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      return window.alert('Microphone access was denied.');
+    }
+    const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(
+      (t) => MediaRecorder.isTypeSupported?.(t)
+    );
+    const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    recorderRef.current = rec;
+    chunksRef.current = [];
+    recordCancelledRef.current = false;
+    recordStartRef.current = Date.now();
+
+    rec.ondataavailable = (ev) => {
+      if (ev.data && ev.data.size > 0) chunksRef.current.push(ev.data);
+    };
+    rec.onstop = () => {
+      stream.getTracks().forEach((t) => t.stop());
+      if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+      const durationMs = Date.now() - recordStartRef.current;
+      setRecording(false);
+      setRecordMs(0);
+      if (recordCancelledRef.current) return;
+      if (durationMs < 500 || chunksRef.current.length === 0) return; // too short — ignore
+      const actualType = rec.mimeType || mimeType || 'audio/webm';
+      const ext = actualType.includes('mp4') ? 'm4a' : 'webm';
+      const blob = new Blob(chunksRef.current, { type: actualType });
+      void sendAttachment(blob, 'audio', ext, durationMs);
+    };
+
+    rec.start();
+    setRecording(true);
+    setRecordMs(0);
+    recordTimerRef.current = setInterval(() => setRecordMs(Date.now() - recordStartRef.current), 200);
+  }
+  function stopRecording() {
+    recordCancelledRef.current = false;
+    const rec = recorderRef.current;
+    if (rec && rec.state !== 'inactive') rec.stop();
+  }
+  function cancelRecording() {
+    recordCancelledRef.current = true;
+    const rec = recorderRef.current;
+    if (rec && rec.state !== 'inactive') rec.stop();
   }
 
   function doReact(m: ChatMessage, emoji: string) {
@@ -401,71 +546,125 @@ export default function ChatRoom() {
 
       <form
         onSubmit={sendMessage}
-        className="safe-bottom border-t border-black/5 bg-white/70 p-3 backdrop-blur dark:border-white/5 dark:bg-black/30"
+        className="safe-bottom border-t border-black/5 bg-white/70 px-3 pb-4 pt-2.5 backdrop-blur dark:border-white/5 dark:bg-black/30"
       >
         {whisper && (
-          <div className="mb-1.5 flex items-center gap-1 px-1 text-[11px] font-medium text-brand-500 dark:text-brand-400">
+          <div className="mb-2 flex items-center gap-1 px-1 text-[11px] font-medium text-brand-500 dark:text-brand-400">
             🫧 Whisper mode — this message arrives blurred
           </div>
         )}
-        <div className="flex items-end gap-2">
-          <div className="flex shrink-0 items-center gap-1">
+
+        {/* Row 1 — quick actions & attachments, all on one line */}
+        <div className="no-scrollbar mb-2 flex items-center gap-1.5 overflow-x-auto">
+          <button
+            type="button"
+            onClick={pickImage}
+            disabled={uploading || recording}
+            title="Send photo"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sky-50 text-lg transition active:scale-90 disabled:opacity-40 dark:bg-sky-500/10"
+          >
+            🖼️
+          </button>
+          <button
+            type="button"
+            onClick={startRecording}
+            disabled={uploading || recording}
+            title="Record voice note"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-50 text-lg transition active:scale-90 disabled:opacity-40 dark:bg-violet-500/10"
+          >
+            🎤
+          </button>
+          <span className="mx-0.5 h-6 w-px shrink-0 bg-black/10 dark:bg-white/10" />
+          <button
+            type="button"
+            onClick={sendNudge}
+            title="Nudge"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-pink-50 text-lg transition active:scale-90 dark:bg-pink-500/10"
+          >
+            💗
+          </button>
+          <button
+            type="button"
+            onClick={() => playEffect('hearts')}
+            title="Send hearts"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-50 text-lg transition active:scale-90 dark:bg-rose-500/10"
+          >
+            ❤️
+          </button>
+          <button
+            type="button"
+            onClick={() => playEffect('confetti')}
+            title="Confetti"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-50 text-lg transition active:scale-90 dark:bg-amber-500/10"
+          >
+            🎉
+          </button>
+          <button
+            type="button"
+            onClick={() => setWhisper((v) => !v)}
+            title="Whisper"
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg transition active:scale-90 ${
+              whisper ? 'bg-brand-500 text-white' : 'bg-slate-100 dark:bg-white/10'
+            }`}
+          >
+            🫧
+          </button>
+          {uploading && <span className="ml-1 shrink-0 text-xs text-slate-400">Uploading…</span>}
+        </div>
+
+        {/* Row 2 — text input + send, or the recording bar */}
+        {recording ? (
+          <div className="flex items-center gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/20 dark:bg-red-500/10">
+            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
+            <span className="tabular-nums text-sm font-semibold text-red-600 dark:text-red-400">
+              {formatClock(recordMs)}
+            </span>
+            <span className="text-xs text-red-400">Recording…</span>
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                type="button"
+                onClick={cancelRecording}
+                title="Cancel"
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-white/70 text-base text-slate-500 transition active:scale-90 dark:bg-white/10 dark:text-slate-300"
+              >
+                🗑
+              </button>
+              <button
+                type="button"
+                onClick={stopRecording}
+                title="Send voice note"
+                className={`flex h-10 w-10 items-center justify-center rounded-full text-white shadow-lg transition active:scale-90 ${theme.mine}`}
+              >
+                ➤
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-end gap-2">
+            <textarea
+              value={text}
+              onChange={(e) => handleTextChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  sendMessage(e as any);
+                }
+              }}
+              placeholder={whisper ? 'Whisper something…' : 'Type a message…'}
+              rows={1}
+              className="max-h-28 flex-1 resize-none rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none ring-brand-500/40 focus:ring-2 dark:border-white/10 dark:bg-white/5 dark:text-white"
+            />
             <button
-              type="button"
-              onClick={sendNudge}
-              title="Nudge"
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-pink-50 text-lg transition active:scale-90 dark:bg-pink-500/10"
+              type="submit"
+              disabled={!text.trim()}
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white shadow-lg transition active:scale-90 disabled:opacity-40 ${theme.mine}`}
             >
-              💗
-            </button>
-            <button
-              type="button"
-              onClick={() => playEffect('hearts')}
-              title="Send hearts"
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-50 text-lg transition active:scale-90 dark:bg-rose-500/10"
-            >
-              ❤️
-            </button>
-            <button
-              type="button"
-              onClick={() => playEffect('confetti')}
-              title="Confetti"
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-50 text-lg transition active:scale-90 dark:bg-amber-500/10"
-            >
-              🎉
-            </button>
-            <button
-              type="button"
-              onClick={() => setWhisper((v) => !v)}
-              title="Whisper"
-              className={`flex h-10 w-10 items-center justify-center rounded-full text-lg transition active:scale-90 ${
-                whisper ? 'bg-brand-500 text-white' : 'bg-slate-100 dark:bg-white/10'
-              }`}
-            >
-              🫧
+              ➤
             </button>
           </div>
-          <textarea
-            value={text}
-            onChange={(e) => handleTextChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage(e as any);
-              }
-            }}
-            placeholder={whisper ? 'Whisper something…' : 'Type a message…'}
-            rows={1}
-            className="max-h-28 flex-1 resize-none rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none ring-brand-500/40 focus:ring-2 dark:border-white/10 dark:bg-white/5 dark:text-white"
-          />
-          <button
-            type="submit"
-            disabled={!text.trim()}
-            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white shadow-lg transition active:scale-90 disabled:opacity-40 ${theme.mine}`}
-          >
-            ➤
-          </button>
-        </div>
+        )}
+
+        <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={onImageSelected} />
       </form>
 
       {actionMsg && user && (
