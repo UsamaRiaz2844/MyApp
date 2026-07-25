@@ -24,6 +24,9 @@ export function mapMessage(row: any): ChatMessage {
     seenAt: row.seen_at || null,
     delayMs: row.delay_ms ?? null,
     isWhisper: !!row.is_whisper,
+    attachmentUrl: row.attachment_url ?? null,
+    attachmentType: row.attachment_type ?? null,
+    attachmentDurationMs: row.attachment_duration_ms ?? null,
   };
 }
 

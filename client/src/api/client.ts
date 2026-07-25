@@ -187,6 +187,22 @@ export const api = {
     await supabase.from('message_reactions').delete().eq('message_id', messageId).eq('user_id', me);
   },
 
+  // --- media uploads -------------------------------------------------------
+  // Uploads a file (image or recorded audio) to the chat-media bucket under
+  // `<conversationId>/<uuid>.<ext>` and returns its public URL. Requires the
+  // media.sql migration (bucket + storage policies) to have been run.
+  async uploadMedia(conversationId: string, file: Blob, ext: string): Promise<{ url: string; path: string }> {
+    const rand =
+      (globalThis.crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const path = `${conversationId}/${rand}.${ext}`;
+    const { error } = await supabase.storage
+      .from('chat-media')
+      .upload(path, file, { contentType: (file as File).type || undefined, upsert: false });
+    if (error) throw new Error(error.message);
+    const { data } = supabase.storage.from('chat-media').getPublicUrl(path);
+    return { url: data.publicUrl, path };
+  },
+
   // --- deletes -------------------------------------------------------------
   async deleteMessage(messageId: string): Promise<void> {
     const { error } = await supabase.from('messages').delete().eq('id', messageId);

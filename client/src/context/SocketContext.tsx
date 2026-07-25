@@ -179,15 +179,29 @@ class SupabaseSocket implements RealtimeClient {
 
   // ---- writes -------------------------------------------------------------
   private async sendMessage(
-    payload: { conversationId: string; text: string; isWhisper?: boolean },
+    payload: {
+      conversationId: string;
+      text: string;
+      isWhisper?: boolean;
+      attachmentUrl?: string;
+      attachmentType?: 'image' | 'audio';
+      attachmentDurationMs?: number;
+    },
     ack?: (res: any) => void
   ) {
     const text = String(payload?.text || '').trim();
-    if (!text || !payload?.conversationId) return ack?.({ error: 'Invalid message' });
-    // Only send is_whisper when true, so normal messaging still works even if
-    // the features.sql migration (which adds the column) hasn't been run yet.
+    const hasAttachment = !!payload?.attachmentUrl;
+    // A message needs either text or an attachment.
+    if ((!text && !hasAttachment) || !payload?.conversationId) return ack?.({ error: 'Invalid message' });
+    // Only send the optional columns when set, so normal messaging still works
+    // even if the features.sql / media.sql migrations haven't been run yet.
     const row: any = { conversation_id: payload.conversationId, text };
     if (payload.isWhisper) row.is_whisper = true;
+    if (hasAttachment) {
+      row.attachment_url = payload.attachmentUrl;
+      row.attachment_type = payload.attachmentType;
+      if (payload.attachmentDurationMs != null) row.attachment_duration_ms = payload.attachmentDurationMs;
+    }
     const { data, error } = await supabase.from('messages').insert(row).select().single();
     if (error || !data) return ack?.({ error: error?.message || 'Failed to send message' });
     ack?.({ message: mapMessage(data) });

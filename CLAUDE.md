@@ -64,11 +64,20 @@ Supabase so the pages barely changed:
 ## Current features
 Late-reply timer · live typing preview · "we're both here" glow · nudge · screen effects
 (hearts/confetti) · whisper messages · reactions · per-chat themes · delete message · delete chat
-· app screen-lock (PIN, `client/src/context/LockContext.tsx`).
+· app screen-lock (PIN, `client/src/context/LockContext.tsx`) · **image messages** · **voice notes**.
+
+### Media messages (image + voice)
+- Migration: `supabase/media.sql` — adds `attachment_url` / `attachment_type` / `attachment_duration_ms`
+  columns on `messages` and a **public `chat-media` Storage bucket** with member-only write RLS
+  (path is `<conversationId>/<uuid>.<ext>`). **Must be run in Supabase for media to work.**
+- Frontend: `api.uploadMedia()` uploads the blob; the socket shim's `sendMessage` only writes the
+  `attachment_*` columns when set (so text/whisper still work if the migration hasn't run).
+  Images use a file picker; voice notes use `MediaRecorder` (`client/src/components/VoiceNote.tsx`
+  is the player). Both send optimistically with a local blob URL, then swap in the public URL.
 
 ## Deferred / next up
-- **Voice notes** and **view-once photos** — need a Supabase **Storage** bucket + RLS + device
-  mic/camera capture. Not built yet.
+- **View-once photos** — the media plumbing (bucket + attachment columns) now exists; this just
+  needs a "view once" flag + read-then-destroy handling on top of image messages.
 
 ## Local dev
 `cd client && npm install && npm run dev` with `client/.env` pointing at a Supabase project.
