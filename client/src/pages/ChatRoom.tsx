@@ -425,7 +425,7 @@ export default function ChatRoom() {
   const myLateMs = todayStat?.lateMs?.[user?.id || ''] || 0;
 
   return (
-    <div className="chat-surface relative flex h-screen flex-col" style={{ backgroundColor: bg }}>
+    <div className="chat-surface relative flex h-[100dvh] flex-col" style={{ backgroundColor: bg }}>
       {bothHere && <div className="copresence-glow animate-glow-pulse" />}
 
       <header className="safe-top sticky top-0 z-30 border-b border-black/5 bg-white/70 backdrop-blur dark:border-white/5 dark:bg-black/30">
