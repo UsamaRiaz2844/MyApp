@@ -546,7 +546,7 @@ export default function ChatRoom() {
 
       <form
         onSubmit={sendMessage}
-        className="safe-bottom border-t border-black/5 bg-white/70 px-3 pb-6 pt-2.5 backdrop-blur dark:border-white/5 dark:bg-black/30"
+        className="safe-bottom border-t border-black/5 bg-white/70 px-3 pb-8 pt-2.5 backdrop-blur dark:border-white/5 dark:bg-black/30"
       >
         {whisper && (
           <div className="mb-2 flex items-center gap-1 px-1 text-[11px] font-medium text-brand-500 dark:text-brand-400">
