@@ -26,7 +26,8 @@
       "Bash(curl -s https://prize-have-keeps-choosing.trycloudflare.com/manifest.webmanifest)",
       "PowerShell(\"--- verify _redirects ---\")",
       "WebSearch",
-      "PowerShell(winget install OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1)"
+      "PowerShell(winget install OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1)",
+      "WebFetch(domain:usamariaz2844.github.io)"
     ]
   }
 }
