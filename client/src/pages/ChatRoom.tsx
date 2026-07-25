@@ -652,12 +652,12 @@ export default function ChatRoom() {
               }}
               placeholder={whisper ? 'Whisper something…' : 'Type a message…'}
               rows={1}
-              className="max-h-28 flex-1 resize-none rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none ring-brand-500/40 focus:ring-2 dark:border-white/10 dark:bg-white/5 dark:text-white"
+              className="max-h-28 flex-1 resize-none rounded-3xl border border-transparent bg-slate-100 px-5 py-3 text-sm outline-none transition focus:border-brand-500/30 focus:bg-white focus:ring-2 focus:ring-brand-500/30 dark:bg-white/10 dark:text-white dark:focus:bg-white/[0.07]"
             />
             <button
               type="submit"
               disabled={!text.trim()}
-              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white shadow-lg transition active:scale-90 disabled:opacity-40 ${theme.mine}`}
+              className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white shadow-lg transition active:scale-90 disabled:opacity-40 ${theme.mine}`}
             >
               ➤
             </button>
