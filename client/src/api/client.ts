@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { mapProfile, mapMessage, mapLateStat, todayUTC } from '../lib/mappers';
-import type { ChatMessage, ConversationSummary, LateStat, OtherUser } from '../types';
+import type { ChatMessage, ConversationSummary, LateStat, OtherUser, ReactionMap } from '../types';
 
 // This module preserves the exact `api.*` surface the UI already uses, but is
 // now backed by Supabase (Postgres + RLS) instead of the old REST server.
@@ -148,5 +148,52 @@ export const api = {
       .limit(30);
     if (error) throw new Error(error.message);
     return { stats: (data || []).map(mapLateStat) };
+  },
+
+  // --- theme ---------------------------------------------------------------
+  async getTheme(conversationId: string): Promise<{ theme: string | null }> {
+    const { data } = await supabase.from('conversations').select('theme').eq('id', conversationId).maybeSingle();
+    return { theme: data?.theme ?? null };
+  },
+  async setTheme(conversationId: string, theme: string): Promise<void> {
+    const { error } = await supabase.from('conversations').update({ theme }).eq('id', conversationId);
+    if (error) throw new Error(error.message);
+  },
+
+  // --- reactions -----------------------------------------------------------
+  async getReactions(conversationId: string): Promise<{ reactions: ReactionMap }> {
+    const { data } = await supabase
+      .from('message_reactions')
+      .select('message_id,user_id,emoji')
+      .eq('conversation_id', conversationId);
+    const map: ReactionMap = {};
+    for (const r of data || []) {
+      (map[r.message_id] ||= {})[r.user_id] = r.emoji;
+    }
+    return { reactions: map };
+  },
+  async setReaction(messageId: string, conversationId: string, emoji: string): Promise<void> {
+    const me = await myId();
+    const { error } = await supabase
+      .from('message_reactions')
+      .upsert(
+        { message_id: messageId, user_id: me, conversation_id: conversationId, emoji, updated_at: new Date().toISOString() },
+        { onConflict: 'message_id,user_id' }
+      );
+    if (error) throw new Error(error.message);
+  },
+  async removeReaction(messageId: string): Promise<void> {
+    const me = await myId();
+    await supabase.from('message_reactions').delete().eq('message_id', messageId).eq('user_id', me);
+  },
+
+  // --- deletes -------------------------------------------------------------
+  async deleteMessage(messageId: string): Promise<void> {
+    const { error } = await supabase.from('messages').delete().eq('id', messageId);
+    if (error) throw new Error(error.message);
+  },
+  async deleteConversation(conversationId: string): Promise<void> {
+    const { error } = await supabase.from('conversations').delete().eq('id', conversationId);
+    if (error) throw new Error(error.message);
   },
 };

@@ -57,6 +57,16 @@ class SupabaseSocket implements RealtimeClient {
       case 'typing':
         this.sendTyping(payload);
         break;
+      case 'nudge':
+        this.sendOnConv(payload?.conversationId, 'nudge', { conversationId: payload?.conversationId, from: this.myId });
+        break;
+      case 'effect':
+        this.sendOnConv(payload?.conversationId, 'effect', {
+          conversationId: payload?.conversationId,
+          from: this.myId,
+          kind: payload?.kind,
+        });
+        break;
       case 'conversation:join':
         this.joinConversation(payload);
         break;
@@ -81,9 +91,30 @@ class SupabaseSocket implements RealtimeClient {
           this.dispatch('message:seen', { conversationId: row.conversation_id, seenBy: row.receiver, seenAt: row.seen_at });
         }
       })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, (p) => {
+        const row: any = p.old;
+        if (row && row.id) this.dispatch('message:deleted', { id: row.id, conversationId: row.conversation_id });
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'late_reply_stats' }, (p) => {
         const row: any = p.new;
         if (row && row.conversation_id) this.dispatch('late-stats:update', mapLateStat(row));
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'message_reactions' }, (p: any) => {
+        const row: any = p.eventType === 'DELETE' ? p.old : p.new;
+        if (!row) return;
+        this.dispatch('reaction:update', {
+          messageId: row.message_id,
+          userId: row.user_id,
+          emoji: p.eventType === 'DELETE' ? null : row.emoji,
+        });
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversations' }, (p) => {
+        const row: any = p.new;
+        if (row && row.id) this.dispatch('conversation:updated', { id: row.id, theme: row.theme });
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'conversations' }, (p) => {
+        const row: any = p.old;
+        if (row && row.id) this.dispatch('conversation:deleted', { id: row.id });
       })
       .subscribe();
   }
@@ -110,11 +141,23 @@ class SupabaseSocket implements RealtimeClient {
       });
   }
 
-  // ---- typing (per-conversation broadcast) --------------------------------
+  // ---- per-conversation channel: typing preview, nudge, effects, co-presence
   private joinConversation(conversationId?: string) {
     if (!conversationId || this.convChannels.has(conversationId)) return;
-    const ch = supabase.channel(`typing:${conversationId}`, { config: { broadcast: { self: false } } });
-    ch.on('broadcast', { event: 'typing' }, ({ payload }) => this.dispatch('typing', payload)).subscribe();
+    const ch = supabase.channel(`conv:${conversationId}`, {
+      config: { broadcast: { self: false }, presence: { key: this.myId } },
+    });
+    ch.on('broadcast', { event: 'typing' }, ({ payload }) => this.dispatch('typing', payload))
+      .on('broadcast', { event: 'nudge' }, ({ payload }) => this.dispatch('nudge', payload))
+      .on('broadcast', { event: 'effect' }, ({ payload }) => this.dispatch('effect', payload))
+      .on('presence', { event: 'sync' }, () => {
+        const keys = Object.keys(ch.presenceState());
+        const bothHere = keys.some((k) => k !== this.myId);
+        this.dispatch('copresence', { conversationId, bothHere });
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') await ch.track({ user_id: this.myId });
+      });
     this.convChannels.set(conversationId, ch);
   }
   private leaveConversation(conversationId?: string) {
@@ -125,20 +168,27 @@ class SupabaseSocket implements RealtimeClient {
       this.convChannels.delete(conversationId);
     }
   }
-  private sendTyping(payload: { conversationId: string; isTyping: boolean }) {
-    const ch = this.convChannels.get(payload?.conversationId);
-    ch?.send({ type: 'broadcast', event: 'typing', payload: { ...payload, userId: this.myId } });
+  private sendTyping(payload: { conversationId: string; isTyping: boolean; text?: string }) {
+    this.sendOnConv(payload?.conversationId, 'typing', { ...payload, userId: this.myId });
+  }
+  private sendOnConv(conversationId: string | undefined, event: string, payload: any) {
+    if (!conversationId) return;
+    const ch = this.convChannels.get(conversationId);
+    ch?.send({ type: 'broadcast', event, payload });
   }
 
   // ---- writes -------------------------------------------------------------
-  private async sendMessage(payload: { conversationId: string; text: string }, ack?: (res: any) => void) {
+  private async sendMessage(
+    payload: { conversationId: string; text: string; isWhisper?: boolean },
+    ack?: (res: any) => void
+  ) {
     const text = String(payload?.text || '').trim();
     if (!text || !payload?.conversationId) return ack?.({ error: 'Invalid message' });
-    const { data, error } = await supabase
-      .from('messages')
-      .insert({ conversation_id: payload.conversationId, text })
-      .select()
-      .single();
+    // Only send is_whisper when true, so normal messaging still works even if
+    // the features.sql migration (which adds the column) hasn't been run yet.
+    const row: any = { conversation_id: payload.conversationId, text };
+    if (payload.isWhisper) row.is_whisper = true;
+    const { data, error } = await supabase.from('messages').insert(row).select().single();
     if (error || !data) return ack?.({ error: error?.message || 'Failed to send message' });
     ack?.({ message: mapMessage(data) });
   }

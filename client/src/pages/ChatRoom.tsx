@@ -3,12 +3,16 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
+import { useTheme } from '../context/ThemeContext';
 import Avatar from '../components/Avatar';
 import TypingDots from '../components/TypingDots';
-import SeenTicks from '../components/SeenTicks';
 import LateStatsSheet from '../components/LateStatsSheet';
-import { formatDayLabel, formatDuration, formatLastSeen, formatMessageTime } from '../utils/format';
-import type { ChatMessage, LateStat, OtherUser } from '../types';
+import MessageBubble from '../components/MessageBubble';
+import MessageActions from '../components/MessageActions';
+import EffectsOverlay, { Fx } from '../components/EffectsOverlay';
+import { CHAT_THEMES, getTheme } from '../lib/themes';
+import { formatDayLabel, formatDuration, formatLastSeen } from '../utils/format';
+import type { ChatMessage, LateStat, OtherUser, ReactionMap } from '../types';
 
 interface LocationState {
   otherUser?: OtherUser;
@@ -20,18 +24,32 @@ export default function ChatRoom() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const socket = useSocket();
+  const { theme: colorMode } = useTheme();
 
   const [otherUser, setOtherUser] = useState<OtherUser | null>(state?.otherUser || null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [reactions, setReactions] = useState<ReactionMap>({});
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState('');
+  const [whisper, setWhisper] = useState(false);
   const [otherTyping, setOtherTyping] = useState(false);
+  const [otherTypingText, setOtherTypingText] = useState('');
   const [todayStat, setTodayStat] = useState<LateStat | null>(null);
   const [showStatsSheet, setShowStatsSheet] = useState(false);
+  const [bothHere, setBothHere] = useState(false);
+  const [themeId, setThemeId] = useState<string | null>(null);
+  const [fx, setFx] = useState<Fx | null>(null);
+  const [nudgePulse, setNudgePulse] = useState(false);
+  const [actionMsg, setActionMsg] = useState<ChatMessage | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [showThemes, setShowThemes] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const wasTyping = useRef(false);
+  const fxCounter = useRef(0);
+
+  const theme = getTheme(themeId);
+  const bg = colorMode === 'dark' ? theme.bgDark : theme.bgLight;
 
   useEffect(() => {
     if (otherUser) return;
@@ -43,15 +61,11 @@ export default function ChatRoom() {
 
   useEffect(() => {
     setLoading(true);
-    api
-      .getMessages(conversationId)
-      .then((data) => setMessages(data.messages))
-      .finally(() => setLoading(false));
+    api.getMessages(conversationId).then((d) => setMessages(d.messages)).finally(() => setLoading(false));
     api.markSeen(conversationId).catch(() => {});
-    api
-      .getLateStats(conversationId)
-      .then((data) => setTodayStat(data.stat))
-      .catch(() => {});
+    api.getLateStats(conversationId).then((d) => setTodayStat(d.stat)).catch(() => {});
+    api.getReactions(conversationId).then((d) => setReactions(d.reactions)).catch(() => {});
+    api.getTheme(conversationId).then((d) => setThemeId(d.theme)).catch(() => {});
   }, [conversationId]);
 
   useEffect(() => {
@@ -72,25 +86,58 @@ export default function ChatRoom() {
       if (msg.sender !== user?.id) {
         socket!.emit('message:seen', { conversationId });
         setOtherTyping(false);
+        setOtherTypingText('');
       }
     }
-
     function onSeen({ conversationId: cid, seenAt }: any) {
       if (cid !== conversationId) return;
       setMessages((prev) => prev.map((m) => (m.sender === user?.id && !m.seenAt ? { ...m, seenAt } : m)));
     }
-
-    function onTyping({ conversationId: cid, userId, isTyping }: any) {
+    function onTyping({ conversationId: cid, userId, isTyping, text: t }: any) {
       if (cid !== conversationId || userId === user?.id) return;
       setOtherTyping(isTyping);
+      setOtherTypingText(isTyping ? t || '' : '');
     }
-
     function onPresence({ userId, isOnline, lastSeen }: any) {
       setOtherUser((prev) => (prev && prev.id === userId ? { ...prev, isOnline, lastSeen: lastSeen || prev.lastSeen } : prev));
     }
-
     function onLateStats(stat: LateStat) {
       if (stat.conversation === conversationId) setTodayStat(stat);
+    }
+    function onCopresence({ conversationId: cid, bothHere: bh }: any) {
+      if (cid === conversationId) setBothHere(bh);
+    }
+    function onNudge({ conversationId: cid }: any) {
+      if (cid !== conversationId) return;
+      navigator.vibrate?.([40, 60, 40]);
+      setNudgePulse(true);
+      setTimeout(() => setNudgePulse(false), 1000);
+    }
+    function onEffect({ conversationId: cid, kind }: any) {
+      if (cid !== conversationId) return;
+      fxCounter.current += 1;
+      setFx({ kind: kind === 'confetti' ? 'confetti' : 'hearts', id: fxCounter.current });
+    }
+    function onReaction({ messageId, userId, emoji }: any) {
+      setReactions((prev) => {
+        const copy = { ...prev };
+        const forMsg = { ...(copy[messageId] || {}) };
+        if (emoji == null) delete forMsg[userId];
+        else forMsg[userId] = emoji;
+        if (Object.keys(forMsg).length) copy[messageId] = forMsg;
+        else delete copy[messageId];
+        return copy;
+      });
+    }
+    function onMessageDeleted({ id, conversationId: cid }: any) {
+      if (cid && cid !== conversationId) return;
+      setMessages((prev) => prev.filter((m) => m.id !== id));
+    }
+    function onConvUpdated({ id, theme: t }: any) {
+      if (id === conversationId) setThemeId(t ?? null);
+    }
+    function onConvDeleted({ id }: any) {
+      if (id === conversationId) navigate('/');
     }
 
     socket.on('message:new', onNewMessage);
@@ -98,37 +145,46 @@ export default function ChatRoom() {
     socket.on('typing', onTyping);
     socket.on('presence:update', onPresence);
     socket.on('late-stats:update', onLateStats);
+    socket.on('copresence', onCopresence);
+    socket.on('nudge', onNudge);
+    socket.on('effect', onEffect);
+    socket.on('reaction:update', onReaction);
+    socket.on('message:deleted', onMessageDeleted);
+    socket.on('conversation:updated', onConvUpdated);
+    socket.on('conversation:deleted', onConvDeleted);
     return () => {
       socket.off('message:new', onNewMessage);
       socket.off('message:seen', onSeen);
       socket.off('typing', onTyping);
       socket.off('presence:update', onPresence);
       socket.off('late-stats:update', onLateStats);
+      socket.off('copresence', onCopresence);
+      socket.off('nudge', onNudge);
+      socket.off('effect', onEffect);
+      socket.off('reaction:update', onReaction);
+      socket.off('message:deleted', onMessageDeleted);
+      socket.off('conversation:updated', onConvUpdated);
+      socket.off('conversation:deleted', onConvDeleted);
     };
-  }, [socket, conversationId, user]);
+  }, [socket, conversationId, user, navigate]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length, otherTyping]);
+  }, [messages.length, otherTyping, otherTypingText]);
 
   function handleTextChange(v: string) {
     setText(v);
     if (!socket) return;
-    if (!wasTyping.current) {
-      socket.emit('typing', { conversationId, isTyping: true });
-      wasTyping.current = true;
-    }
+    socket.emit('typing', { conversationId, isTyping: v.length > 0, text: v });
     if (typingTimeout.current) clearTimeout(typingTimeout.current);
-    typingTimeout.current = setTimeout(() => {
-      socket.emit('typing', { conversationId, isTyping: false });
-      wasTyping.current = false;
-    }, 1200);
+    typingTimeout.current = setTimeout(() => socket.emit('typing', { conversationId, isTyping: false, text: '' }), 2500);
   }
 
   function sendMessage(e: React.FormEvent) {
     e.preventDefault();
     const trimmed = text.trim();
     if (!trimmed || !socket) return;
+    const wasWhisper = whisper;
 
     const tempId = `temp-${Date.now()}`;
     const optimistic: ChatMessage = {
@@ -140,27 +196,74 @@ export default function ChatRoom() {
       createdAt: new Date().toISOString(),
       seenAt: null,
       delayMs: null,
+      isWhisper: wasWhisper,
     };
     setMessages((prev) => [...prev, optimistic]);
     setText('');
-    if (wasTyping.current) {
-      socket.emit('typing', { conversationId, isTyping: false });
-      wasTyping.current = false;
-    }
+    setWhisper(false);
+    socket.emit('typing', { conversationId, isTyping: false, text: '' });
 
-    socket.emit('message:send', { conversationId, text: trimmed }, (res: any) => {
+    socket.emit('message:send', { conversationId, text: trimmed, isWhisper: wasWhisper }, (res: any) => {
       if (res?.message) {
         setMessages((prev) => {
-          // the real-time broadcast (sent to the sender's own room too, for multi-device sync)
-          // can arrive before this ack does - if so, just drop the optimistic placeholder.
-          const alreadyArrived = prev.some((m) => m.id === res.message.id);
-          if (alreadyArrived) return prev.filter((m) => m.id !== tempId);
+          const already = prev.some((m) => m.id === res.message.id);
+          if (already) return prev.filter((m) => m.id !== tempId);
           return prev.map((m) => (m.id === tempId ? res.message : m));
         });
       } else {
         setMessages((prev) => prev.filter((m) => m.id !== tempId));
       }
     });
+  }
+
+  function doReact(m: ChatMessage, emoji: string) {
+    if (!user) return;
+    const mineEmoji = reactions[m.id]?.[user.id];
+    if (mineEmoji === emoji) {
+      setReactions((prev) => onReactionLocal(prev, m.id, user.id, null));
+      api.removeReaction(m.id).catch(() => {});
+    } else {
+      setReactions((prev) => onReactionLocal(prev, m.id, user.id, emoji));
+      api.setReaction(m.id, conversationId, emoji).catch(() => {});
+    }
+  }
+  function onReactionLocal(prev: ReactionMap, messageId: string, userId: string, emoji: string | null): ReactionMap {
+    const copy = { ...prev };
+    const forMsg = { ...(copy[messageId] || {}) };
+    if (emoji == null) delete forMsg[userId];
+    else forMsg[userId] = emoji;
+    if (Object.keys(forMsg).length) copy[messageId] = forMsg;
+    else delete copy[messageId];
+    return copy;
+  }
+
+  function doDelete(m: ChatMessage) {
+    setMessages((prev) => prev.filter((x) => x.id !== m.id));
+    setActionMsg(null);
+    api.deleteMessage(m.id).catch(() => {});
+  }
+
+  function playEffect(kind: 'hearts' | 'confetti') {
+    fxCounter.current += 1;
+    setFx({ kind, id: fxCounter.current });
+    socket?.emit('effect', { conversationId, kind });
+  }
+  function sendNudge() {
+    socket?.emit('nudge', { conversationId });
+    navigator.vibrate?.(30);
+    setNudgePulse(true);
+    setTimeout(() => setNudgePulse(false), 1000);
+  }
+
+  function chooseTheme(id: string) {
+    setThemeId(id);
+    setShowThemes(false);
+    api.setTheme(conversationId, id).catch(() => {});
+  }
+  function deleteChat() {
+    setMenuOpen(false);
+    if (!window.confirm(`Delete your entire chat with @${otherUser?.username}? This can't be undone.`)) return;
+    api.deleteConversation(conversationId).then(() => navigate('/')).catch(() => {});
   }
 
   const grouped = useMemo(() => {
@@ -175,11 +278,12 @@ export default function ChatRoom() {
   }, [messages]);
 
   const myLateMs = todayStat?.lateMs?.[user?.id || ''] || 0;
-  const theirLateMs = otherUser ? todayStat?.lateMs?.[otherUser.id] || 0 : 0;
 
   return (
-    <div className="flex h-screen flex-col bg-slate-50 dark:bg-[#0b0c10]">
-      <header className="safe-top sticky top-0 z-10 border-b border-slate-200/70 bg-white/80 backdrop-blur dark:border-white/5 dark:bg-[#0b0c10]/80">
+    <div className="chat-surface relative flex h-screen flex-col" style={{ backgroundColor: bg }}>
+      {bothHere && <div className="copresence-glow animate-glow-pulse" />}
+
+      <header className="safe-top sticky top-0 z-30 border-b border-black/5 bg-white/70 backdrop-blur dark:border-white/5 dark:bg-black/30">
         <div className="flex items-center gap-3 px-3 py-2.5">
           <button
             onClick={() => navigate('/')}
@@ -197,7 +301,9 @@ export default function ChatRoom() {
           <div className="min-w-0 flex-1">
             <p className="truncate font-semibold text-slate-900 dark:text-white">@{otherUser?.username}</p>
             <p className="truncate text-xs text-slate-400">
-              {otherTyping ? (
+              {bothHere ? (
+                <span className="font-medium text-pink-500 dark:text-pink-400">✨ you're both here</span>
+              ) : otherTyping ? (
                 <span className="text-brand-500 dark:text-brand-400">typing…</span>
               ) : (
                 formatLastSeen(!!otherUser?.isOnline, otherUser?.lastSeen || null)
@@ -207,14 +313,40 @@ export default function ChatRoom() {
           <button
             onClick={() => setShowStatsSheet(true)}
             className="flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-500/20"
-            title="Late-reply stats"
           >
             ⏱ {formatDuration(myLateMs)}
           </button>
+          <div className="relative shrink-0">
+            <button
+              onClick={() => setMenuOpen((v) => !v)}
+              className="flex h-9 w-9 items-center justify-center rounded-full text-xl text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10"
+            >
+              ⋮
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-11 z-40 w-44 overflow-hidden rounded-xl bg-white py-1 shadow-xl ring-1 ring-black/5 dark:bg-[#17181f] dark:ring-white/10">
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setShowThemes(true);
+                  }}
+                  className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
+                >
+                  🎨 Chat theme
+                </button>
+                <button
+                  onClick={deleteChat}
+                  className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
+                >
+                  🗑 Delete chat
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
-      <main className="no-scrollbar flex-1 space-y-1 overflow-y-auto px-3 py-4">
+      <main className="no-scrollbar flex-1 space-y-1 overflow-y-auto px-3 py-4" onClick={() => menuOpen && setMenuOpen(false)}>
         {loading ? (
           <p className="py-8 text-center text-sm text-slate-400">Loading messages…</p>
         ) : messages.length === 0 ? (
@@ -226,47 +358,93 @@ export default function ChatRoom() {
           grouped.map((group) => (
             <div key={group.day}>
               <div className="my-3 flex justify-center">
-                <span className="rounded-full bg-slate-200/70 px-3 py-1 text-[11px] font-medium text-slate-500 dark:bg-white/5 dark:text-slate-400">
+                <span className="rounded-full bg-black/5 px-3 py-1 text-[11px] font-medium text-slate-500 dark:bg-white/5 dark:text-slate-400">
                   {group.day}
                 </span>
               </div>
-              {group.items.map((m) => {
-                const mine = m.sender === user?.id;
-                return (
-                  <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'} mb-1.5`}>
-                    <div
-                      className={`max-w-[76%] animate-pop-in rounded-2xl px-3.5 py-2.5 text-sm shadow-sm ${
-                        mine
-                          ? 'rounded-br-sm bg-gradient-to-br from-brand-500 to-pink-500 text-white'
-                          : 'rounded-bl-sm bg-white text-slate-800 dark:bg-white/10 dark:text-slate-100'
-                      }`}
-                    >
-                      <p className="whitespace-pre-wrap break-words">{m.text}</p>
-                      <div
-                        className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${
-                          mine ? 'text-white/80' : 'text-slate-400'
-                        }`}
-                      >
-                        <span>{formatMessageTime(m.createdAt)}</span>
-                        {mine && <SeenTicks seen={!!m.seenAt} />}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+              {group.items.map((m) => (
+                <MessageBubble
+                  key={m.id}
+                  m={m}
+                  mine={m.sender === user?.id}
+                  mineClass={theme.mine}
+                  reactions={reactions[m.id]}
+                  onQuickReact={() => doReact(m, '❤️')}
+                  onOpenActions={() => setActionMsg(m)}
+                />
+              ))}
             </div>
           ))
         )}
         {otherTyping && (
           <div className="flex justify-start">
-            <TypingDots />
+            {otherTypingText ? (
+              <div className="max-w-[76%] rounded-2xl rounded-bl-sm bg-white/70 px-3.5 py-2.5 text-sm italic text-slate-500 shadow-sm dark:bg-white/5 dark:text-slate-400">
+                {otherTypingText}
+                <span className="ml-0.5 animate-blink">▍</span>
+              </div>
+            ) : (
+              <TypingDots />
+            )}
           </div>
         )}
         <div ref={bottomRef} />
       </main>
 
-      <form onSubmit={sendMessage} className="safe-bottom border-t border-slate-200/70 bg-white/80 p-3 backdrop-blur dark:border-white/5 dark:bg-[#0b0c10]/80">
+      {nudgePulse && (
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center">
+          <div className="animate-heartbeat text-8xl drop-shadow-lg">💗</div>
+        </div>
+      )}
+
+      <EffectsOverlay fx={fx} />
+
+      <form
+        onSubmit={sendMessage}
+        className="safe-bottom border-t border-black/5 bg-white/70 p-3 backdrop-blur dark:border-white/5 dark:bg-black/30"
+      >
+        {whisper && (
+          <div className="mb-1.5 flex items-center gap-1 px-1 text-[11px] font-medium text-brand-500 dark:text-brand-400">
+            🫧 Whisper mode — this message arrives blurred
+          </div>
+        )}
         <div className="flex items-end gap-2">
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={sendNudge}
+              title="Nudge"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-pink-50 text-lg transition active:scale-90 dark:bg-pink-500/10"
+            >
+              💗
+            </button>
+            <button
+              type="button"
+              onClick={() => playEffect('hearts')}
+              title="Send hearts"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-50 text-lg transition active:scale-90 dark:bg-rose-500/10"
+            >
+              ❤️
+            </button>
+            <button
+              type="button"
+              onClick={() => playEffect('confetti')}
+              title="Confetti"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-50 text-lg transition active:scale-90 dark:bg-amber-500/10"
+            >
+              🎉
+            </button>
+            <button
+              type="button"
+              onClick={() => setWhisper((v) => !v)}
+              title="Whisper"
+              className={`flex h-10 w-10 items-center justify-center rounded-full text-lg transition active:scale-90 ${
+                whisper ? 'bg-brand-500 text-white' : 'bg-slate-100 dark:bg-white/10'
+              }`}
+            >
+              🫧
+            </button>
+          </div>
           <textarea
             value={text}
             onChange={(e) => handleTextChange(e.target.value)}
@@ -276,19 +454,66 @@ export default function ChatRoom() {
                 sendMessage(e as any);
               }
             }}
-            placeholder="Type a message…"
+            placeholder={whisper ? 'Whisper something…' : 'Type a message…'}
             rows={1}
             className="max-h-28 flex-1 resize-none rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none ring-brand-500/40 focus:ring-2 dark:border-white/10 dark:bg-white/5 dark:text-white"
           />
           <button
             type="submit"
             disabled={!text.trim()}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-pink-500 text-white shadow-lg shadow-brand-500/30 transition active:scale-90 disabled:opacity-40"
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white shadow-lg transition active:scale-90 disabled:opacity-40 ${theme.mine}`}
           >
             ➤
           </button>
         </div>
       </form>
+
+      {actionMsg && user && (
+        <MessageActions
+          isMine={actionMsg.sender === user.id}
+          currentReaction={reactions[actionMsg.id]?.[user.id]}
+          onReact={(emoji) => {
+            doReact(actionMsg, emoji);
+            setActionMsg(null);
+          }}
+          onDelete={() => doDelete(actionMsg)}
+          onClose={() => setActionMsg(null)}
+        />
+      )}
+
+      {showThemes && (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowThemes(false)}>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="safe-bottom w-full max-w-md animate-pop-in rounded-t-3xl bg-white p-5 shadow-2xl dark:bg-[#15161d]"
+          >
+            <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-slate-300 dark:bg-white/20" />
+            <h2 className="mb-3 text-lg font-bold text-slate-900 dark:text-white">🎨 Chat theme</h2>
+            <div className="grid grid-cols-3 gap-3">
+              {CHAT_THEMES.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => chooseTheme(t.id)}
+                  className={`flex flex-col items-center gap-2 rounded-2xl p-3 ring-1 transition active:scale-95 ${
+                    themeId === t.id || (!themeId && t.id === 'default')
+                      ? 'ring-brand-500'
+                      : 'ring-slate-200 dark:ring-white/10'
+                  }`}
+                >
+                  <span className="h-10 w-10 rounded-full shadow-inner" style={{ background: t.swatch }} />
+                  <span className="text-xs font-medium text-slate-600 dark:text-slate-300">{t.label}</span>
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setShowThemes(false)}
+              className="mt-5 w-full rounded-xl bg-slate-100 py-2.5 text-sm font-semibold text-slate-700 dark:bg-white/10 dark:text-slate-200"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {showStatsSheet && otherUser && (
         <LateStatsSheet

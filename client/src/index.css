@@ -33,3 +33,36 @@ body {
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom);
 }
+
+/* Smooth theme transitions — easier on the eyes for long sessions */
+.chat-surface {
+  transition: background-color 0.4s ease;
+}
+
+/* "We're both here" ambient glow around the chat edges */
+.copresence-glow {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  box-shadow: inset 0 0 60px 6px rgba(236, 72, 153, 0.35), inset 0 0 120px 20px rgba(99, 102, 241, 0.25);
+}
+
+/* Whisper: blurred until held */
+.whisper-hidden {
+  filter: blur(7px);
+  cursor: pointer;
+  user-select: none;
+}
+.whisper-shown {
+  filter: none;
+}
+
+/* Full-screen effect layer sits above everything, ignores input */
+.fx-layer {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  overflow: hidden;
+}

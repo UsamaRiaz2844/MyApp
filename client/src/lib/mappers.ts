@@ -23,6 +23,7 @@ export function mapMessage(row: any): ChatMessage {
     createdAt: row.created_at,
     seenAt: row.seen_at || null,
     delayMs: row.delay_ms ?? null,
+    isWhisper: !!row.is_whisper,
   };
 }
 

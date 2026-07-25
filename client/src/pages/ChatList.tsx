@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
 import ThemeToggle from '../components/ThemeToggle';
 import Avatar from '../components/Avatar';
+import LockSetupModal from '../components/LockSetupModal';
 import { formatDuration, formatLastSeen } from '../utils/format';
 import type { ConversationSummary, OtherUser } from '../types';
 
@@ -19,6 +20,9 @@ export default function ChatList() {
   const [results, setResults] = useState<OtherUser[]>([]);
   const [searching, setSearching] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showLock, setShowLock] = useState(false);
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressed = useRef(false);
 
   useEffect(() => {
     api.listConversations().then((data) => {
@@ -76,14 +80,19 @@ export default function ChatList() {
     function onLateStats(stat: any) {
       setConversations((prev) => prev.map((c) => (c.id === stat.conversation ? { ...c, todayLateStats: stat } : c)));
     }
+    function onConvDeleted({ id }: any) {
+      setConversations((prev) => prev.filter((c) => c.id !== id));
+    }
 
     socket.on('message:new', onNewMessage);
     socket.on('presence:update', onPresence);
     socket.on('late-stats:update', onLateStats);
+    socket.on('conversation:deleted', onConvDeleted);
     return () => {
       socket.off('message:new', onNewMessage);
       socket.off('presence:update', onPresence);
       socket.off('late-stats:update', onLateStats);
+      socket.off('conversation:deleted', onConvDeleted);
     };
   }, [socket, user]);
 
@@ -95,7 +104,22 @@ export default function ChatList() {
   }
 
   function openExisting(c: ConversationSummary) {
+    if (longPressed.current) return;
     navigate(`/chat/${c.id}`, { state: { otherUser: c.otherUser } });
+  }
+
+  function startPress(c: ConversationSummary) {
+    longPressed.current = false;
+    pressTimer.current = setTimeout(() => {
+      longPressed.current = true;
+      if (window.confirm(`Delete your chat with @${c.otherUser?.username}? This can't be undone.`)) {
+        setConversations((prev) => prev.filter((x) => x.id !== c.id));
+        api.deleteConversation(c.id).catch(() => {});
+      }
+    }, 500);
+  }
+  function endPress() {
+    if (pressTimer.current) clearTimeout(pressTimer.current);
   }
 
   const showingSearch = query.trim().length > 0;
@@ -130,6 +154,15 @@ export default function ChatList() {
                   <div className="border-b border-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 dark:border-white/5 dark:text-slate-200">
                     @{user?.username}
                   </div>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setShowLock(true);
+                    }}
+                    className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
+                  >
+                    🔒 App lock
+                  </button>
                   <button
                     onClick={logout}
                     className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
@@ -194,6 +227,10 @@ export default function ChatList() {
                 <li key={c.id}>
                   <button
                     onClick={() => openExisting(c)}
+                    onPointerDown={() => startPress(c)}
+                    onPointerUp={endPress}
+                    onPointerLeave={endPress}
+                    onContextMenu={(e) => e.preventDefault()}
                     className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-slate-100 active:scale-[0.99] dark:hover:bg-white/5"
                   >
                     <Avatar
@@ -243,6 +280,8 @@ export default function ChatList() {
           </ul>
         )}
       </main>
+
+      {showLock && <LockSetupModal onClose={() => setShowLock(false)} />}
     </div>
   );
 }

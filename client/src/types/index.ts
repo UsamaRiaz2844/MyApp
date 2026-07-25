@@ -38,4 +38,8 @@ export interface ChatMessage {
   createdAt: string;
   seenAt: string | null;
   delayMs: number | null;
+  isWhisper?: boolean;
 }
+
+// messageId -> (userId -> emoji)
+export type ReactionMap = Record<string, Record<string, string>>;
