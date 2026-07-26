@@ -203,6 +203,30 @@ export const api = {
     return { url: data.publicUrl, path };
   },
 
+  // --- encryption ----------------------------------------------------------
+  // Per-conversation E2EE metadata: a public PBKDF2 salt and a verifier token
+  // (the shared passphrase never touches the server). Reads degrade gracefully
+  // to null if the encryption.sql migration hasn't been run.
+  async getEncryption(conversationId: string): Promise<{ salt: string | null; check: string | null }> {
+    try {
+      const { data } = await supabase
+        .from('conversations')
+        .select('enc_salt, enc_check')
+        .eq('id', conversationId)
+        .maybeSingle();
+      return { salt: data?.enc_salt ?? null, check: data?.enc_check ?? null };
+    } catch {
+      return { salt: null, check: null };
+    }
+  },
+  async enableEncryption(conversationId: string, salt: string, check: string): Promise<void> {
+    const { error } = await supabase
+      .from('conversations')
+      .update({ enc_salt: salt, enc_check: check })
+      .eq('id', conversationId);
+    if (error) throw new Error(error.message);
+  },
+
   // --- deletes -------------------------------------------------------------
   async deleteMessage(messageId: string): Promise<void> {
     const { error } = await supabase.from('messages').delete().eq('id', messageId);

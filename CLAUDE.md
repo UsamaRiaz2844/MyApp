@@ -64,7 +64,25 @@ Supabase so the pages barely changed:
 ## Current features
 Late-reply timer · live typing preview · "we're both here" glow · nudge · screen effects
 (hearts/confetti) · whisper messages · reactions · per-chat themes · delete message · delete chat
-· app screen-lock (PIN, `client/src/context/LockContext.tsx`) · **image messages** · **voice notes**.
+· app screen-lock (PIN, `client/src/context/LockContext.tsx`) · **image messages** · **voice notes**
+· **end-to-end encryption**.
+
+### End-to-end encryption (shared passphrase)
+- Migration: `supabase/encryption.sql` — adds `is_encrypted` + `enc_marker` on `messages`,
+  `enc_salt` + `enc_check` on `conversations`, and updates the `handle_new_message` trigger.
+  **Must be run in Supabase for encryption to work.**
+- Model: a per-conversation shared passphrase (both people type it once per device) → PBKDF2 →
+  AES-GCM in the browser (`client/src/lib/crypto.ts`). Supabase only ever stores ciphertext for
+  text and for the **bytes of images/voice** (uploaded as encrypted blobs). The passphrase is kept
+  in `localStorage` per device and never sent to the server. Old plaintext messages stay readable
+  (encrypted text carries an `e1:` prefix; media uses the `is_encrypted` flag).
+- Key lifecycle: `client/src/lib/useConversationCrypto.ts` (`off`/`locked`/`ready`), setup/unlock
+  via `EncryptionModal`, `enc_check` verifies both devices derived the same key. Decryption for
+  display lives in `MediaAttachment` (media) and `ChatRoom.bodyFor` (text).
+- **Late-reply timer under encryption:** the server can't read encrypted text, so the client
+  classifies hi/bye (`greetMarker`) and sends it as `enc_marker`; the trigger uses that for
+  encrypted messages and falls back to the text regex for plaintext ones. Delay timing is
+  unchanged (timestamps stay in the clear).
 
 ### Media messages (image + voice)
 - Migration: `supabase/media.sql` — adds `attachment_url` / `attachment_type` / `attachment_duration_ms`

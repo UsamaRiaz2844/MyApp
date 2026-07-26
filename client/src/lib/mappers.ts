@@ -27,6 +27,7 @@ export function mapMessage(row: any): ChatMessage {
     attachmentUrl: row.attachment_url ?? null,
     attachmentType: row.attachment_type ?? null,
     attachmentDurationMs: row.attachment_duration_ms ?? null,
+    isEncrypted: !!row.is_encrypted,
   };
 }
 

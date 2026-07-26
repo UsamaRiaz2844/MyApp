@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import SeenTicks from './SeenTicks';
-import VoiceNote from './VoiceNote';
+import MediaAttachment from './MediaAttachment';
 import { formatMessageTime } from '../utils/format';
 import type { ChatMessage } from '../types';
 
@@ -9,21 +9,33 @@ interface Props {
   mine: boolean;
   mineClass: string; // theme bubble classes for own messages
   reactions?: Record<string, string>; // userId -> emoji
+  displayText?: string; // decrypted/plaintext body to render (falls back to m.text)
+  cryptoKey?: CryptoKey | null; // for decrypting encrypted media
   onQuickReact: () => void; // double-tap
   onOpenActions: () => void; // long-press
 }
 
-export default function MessageBubble({ m, mine, mineClass, reactions, onQuickReact, onOpenActions }: Props) {
+export default function MessageBubble({
+  m,
+  mine,
+  mineClass,
+  reactions,
+  displayText,
+  cryptoKey,
+  onQuickReact,
+  onOpenActions,
+}: Props) {
   const [revealed, setRevealed] = useState(false);
   const lastTap = useRef(0);
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressed = useRef(false);
 
-  const isBlurredWhisper = m.isWhisper && !mine && !revealed;
+  const isBlurredWhisper = !!(m.isWhisper && !mine && !revealed);
   const reactionList = reactions ? Object.values(reactions) : [];
   const hasImage = m.attachmentType === 'image' && !!m.attachmentUrl;
   const hasAudio = m.attachmentType === 'audio' && !!m.attachmentUrl;
   const hasMedia = hasImage || hasAudio;
+  const body = displayText ?? m.text;
 
   function startPress() {
     longPressed.current = false;
@@ -72,35 +84,25 @@ export default function MessageBubble({ m, mine, mineClass, reactions, onQuickRe
             </span>
           )}
 
-          {hasImage && (
-            <img
-              src={m.attachmentUrl!}
-              alt="shared"
-              loading="lazy"
-              onClick={(e) => {
-                if (isBlurredWhisper) return; // let the bubble handler reveal it
-                e.stopPropagation();
-                window.open(m.attachmentUrl!, '_blank', 'noopener');
-              }}
-              className={`block max-h-72 w-full max-w-[260px] rounded-xl object-cover ${
-                isBlurredWhisper ? 'whisper-hidden' : 'whisper-shown'
-              }`}
+          {hasMedia && (
+            <MediaAttachment
+              type={hasImage ? 'image' : 'audio'}
+              url={m.attachmentUrl!}
+              durationMs={m.attachmentDurationMs ?? null}
+              encrypted={!!m.isEncrypted}
+              cryptoKey={cryptoKey ?? null}
+              mine={mine}
+              blurred={isBlurredWhisper}
             />
           )}
 
-          {hasAudio && (
-            <div className={isBlurredWhisper ? 'whisper-hidden' : 'whisper-shown'}>
-              <VoiceNote src={m.attachmentUrl!} durationMs={m.attachmentDurationMs ?? null} mine={mine} />
-            </div>
-          )}
-
-          {m.text && (
+          {body && (
             <p
               className={`whitespace-pre-wrap break-words ${hasImage ? 'px-2.5 pt-1.5' : hasMedia ? 'mt-1.5' : ''} ${
                 isBlurredWhisper ? 'whisper-hidden' : 'whisper-shown'
               }`}
             >
-              {m.text}
+              {body}
             </p>
           )}
 

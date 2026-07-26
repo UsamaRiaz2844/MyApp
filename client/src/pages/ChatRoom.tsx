@@ -10,7 +10,10 @@ import LateStatsSheet from '../components/LateStatsSheet';
 import MessageBubble from '../components/MessageBubble';
 import MessageActions from '../components/MessageActions';
 import EffectsOverlay, { Fx } from '../components/EffectsOverlay';
+import EncryptionModal from '../components/EncryptionModal';
 import { CHAT_THEMES, getTheme } from '../lib/themes';
+import { useConversationCrypto } from '../lib/useConversationCrypto';
+import { decryptText, encryptText, encryptFile, greetMarker, isEncryptedText } from '../lib/crypto';
 import { formatClock, formatDayLabel, formatDuration, formatLastSeen } from '../utils/format';
 import type { AttachmentType, ChatMessage, LateStat, OtherUser, ReactionMap } from '../types';
 
@@ -48,6 +51,14 @@ export default function ChatRoom() {
   const [uploading, setUploading] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordMs, setRecordMs] = useState(0);
+
+  // --- encryption -----------------------------------------------------------
+  const crypto = useConversationCrypto(conversationId);
+  const cryptoKey = crypto.key;
+  const encStatus = crypto.status;
+  const [decrypted, setDecrypted] = useState<Record<string, string>>({});
+  const [showEncModal, setShowEncModal] = useState(false);
+  const refreshedForEnc = useRef(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -193,6 +204,46 @@ export default function ChatRoom() {
     };
   }, []);
 
+  // Decrypt encrypted text bodies once the key is available.
+  useEffect(() => {
+    if (!cryptoKey) return;
+    let cancelled = false;
+    (async () => {
+      const updates: Record<string, string> = {};
+      for (const m of messages) {
+        if (m.isEncrypted && isEncryptedText(m.text) && decrypted[m.id] === undefined) {
+          try {
+            updates[m.id] = await decryptText(cryptoKey, m.text);
+          } catch {
+            updates[m.id] = '⚠️ Unable to decrypt';
+          }
+        }
+      }
+      if (!cancelled && Object.keys(updates).length) setDecrypted((prev) => ({ ...prev, ...updates }));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [messages, cryptoKey, decrypted]);
+
+  // If an encrypted message shows up but this device thinks encryption is off
+  // (e.g. the partner just turned it on), re-check the conversation metadata.
+  useEffect(() => {
+    if (encStatus === 'off' && !refreshedForEnc.current && messages.some((m) => m.isEncrypted)) {
+      refreshedForEnc.current = true;
+      crypto.refresh();
+    }
+  }, [encStatus, messages, crypto]);
+
+  // Decrypted body (or a placeholder) to render for a message.
+  function bodyFor(m: ChatMessage): string {
+    if (!m.isEncrypted) return m.text;
+    if (isEncryptedText(m.text)) {
+      return decrypted[m.id] ?? (cryptoKey ? '' : '🔒 Encrypted message');
+    }
+    return m.text || ''; // encrypted media-only message: no text body
+  }
+
   function handleTextChange(v: string) {
     setText(v);
     if (!socket) return;
@@ -201,11 +252,29 @@ export default function ChatRoom() {
     typingTimeout.current = setTimeout(() => socket.emit('typing', { conversationId, isTyping: false, text: '' }), 2500);
   }
 
-  function sendMessage(e: React.FormEvent) {
+  async function sendMessage(e: React.FormEvent) {
     e.preventDefault();
     const trimmed = text.trim();
     if (!trimmed || !socket) return;
+    // Encryption enabled on this conversation but locked on this device — must
+    // unlock before sending (otherwise we'd leak plaintext into an E2EE chat).
+    if (encStatus === 'locked') {
+      setShowEncModal(true);
+      return;
+    }
     const wasWhisper = whisper;
+    const encrypt = encStatus === 'ready' && !!cryptoKey;
+    let payloadText = trimmed;
+    let marker: 'greet' | 'bye' | null = null;
+    if (encrypt) {
+      marker = greetMarker(trimmed);
+      try {
+        payloadText = await encryptText(cryptoKey!, trimmed);
+      } catch {
+        window.alert('Encryption failed — message not sent.');
+        return;
+      }
+    }
 
     const tempId = `temp-${Date.now()}`;
     const optimistic: ChatMessage = {
@@ -213,35 +282,49 @@ export default function ChatRoom() {
       conversation: conversationId,
       sender: user!.id,
       receiver: otherUser?.id || '',
-      text: trimmed,
+      text: encrypt ? payloadText : trimmed,
       createdAt: new Date().toISOString(),
       seenAt: null,
       delayMs: null,
       isWhisper: wasWhisper,
+      isEncrypted: encrypt,
     };
+    if (encrypt) setDecrypted((prev) => ({ ...prev, [tempId]: trimmed }));
     setMessages((prev) => [...prev, optimistic]);
     setText('');
     setWhisper(false);
     socket.emit('typing', { conversationId, isTyping: false, text: '' });
 
-    socket.emit('message:send', { conversationId, text: trimmed, isWhisper: wasWhisper }, (res: any) => {
-      if (res?.message) {
-        setMessages((prev) => {
-          const already = prev.some((m) => m.id === res.message.id);
-          if (already) return prev.filter((m) => m.id !== tempId);
-          return prev.map((m) => (m.id === tempId ? res.message : m));
-        });
-      } else {
-        setMessages((prev) => prev.filter((m) => m.id !== tempId));
+    socket.emit(
+      'message:send',
+      { conversationId, text: payloadText, isWhisper: wasWhisper, isEncrypted: encrypt, encMarker: marker },
+      (res: any) => {
+        if (res?.message) {
+          if (encrypt) setDecrypted((prev) => ({ ...prev, [res.message.id]: trimmed }));
+          setMessages((prev) => {
+            const already = prev.some((m) => m.id === res.message.id);
+            if (already) return prev.filter((m) => m.id !== tempId);
+            return prev.map((m) => (m.id === tempId ? res.message : m));
+          });
+        } else {
+          setMessages((prev) => prev.filter((m) => m.id !== tempId));
+        }
       }
-    });
+    );
   }
 
   // --- attachments (image + voice) -----------------------------------------
   async function sendAttachment(blob: Blob, type: AttachmentType, ext: string, durationMs?: number) {
     if (!socket || !user) return;
+    if (encStatus === 'locked') {
+      setShowEncModal(true);
+      return;
+    }
+    const encrypt = encStatus === 'ready' && !!cryptoKey;
     const wasWhisper = whisper;
     setWhisper(false);
+    // Optimistic bubble shows the local plaintext (not encrypted) so it appears
+    // instantly; the server row that replaces it carries the encrypted URL.
     const localUrl = URL.createObjectURL(blob);
     const tempId = `temp-${Date.now()}`;
     const optimistic: ChatMessage = {
@@ -257,11 +340,15 @@ export default function ChatRoom() {
       attachmentUrl: localUrl,
       attachmentType: type,
       attachmentDurationMs: durationMs ?? null,
+      isEncrypted: false,
     };
     setMessages((prev) => [...prev, optimistic]);
     setUploading(true);
     try {
-      const { url } = await api.uploadMedia(conversationId, blob, ext);
+      // Encrypt the bytes before upload so Storage only holds ciphertext.
+      const toUpload = encrypt ? await encryptFile(cryptoKey!, blob) : blob;
+      const uploadExt = encrypt ? 'enc' : ext;
+      const { url } = await api.uploadMedia(conversationId, toUpload, uploadExt);
       socket.emit(
         'message:send',
         {
@@ -271,6 +358,7 @@ export default function ChatRoom() {
           attachmentUrl: url,
           attachmentType: type,
           attachmentDurationMs: durationMs,
+          isEncrypted: encrypt,
         },
         (res: any) => {
           URL.revokeObjectURL(localUrl);
@@ -411,6 +499,16 @@ export default function ChatRoom() {
     api.deleteConversation(conversationId).then(() => navigate('/')).catch(() => {});
   }
 
+  function onLockClick() {
+    if (encStatus === 'ready') {
+      if (window.confirm('Lock encrypted messages on this device? You will need the shared secret to read them again.')) {
+        crypto.lock();
+      }
+    } else if (encStatus === 'off' || encStatus === 'locked') {
+      setShowEncModal(true);
+    }
+  }
+
   const grouped = useMemo(() => {
     const groups: { day: string; items: ChatMessage[] }[] = [];
     for (const m of messages) {
@@ -455,6 +553,25 @@ export default function ChatRoom() {
               )}
             </p>
           </div>
+          <button
+            onClick={onLockClick}
+            title={
+              encStatus === 'ready'
+                ? 'Encrypted — tap to lock on this device'
+                : encStatus === 'locked'
+                ? 'Locked — tap to unlock'
+                : 'Turn on encryption'
+            }
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base transition active:scale-90 ${
+              encStatus === 'ready'
+                ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400'
+                : encStatus === 'locked'
+                ? 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400'
+                : 'bg-slate-100 text-slate-400 dark:bg-white/10'
+            }`}
+          >
+            {encStatus === 'off' ? '🔓' : '🔒'}
+          </button>
           <button
             onClick={() => setShowStatsSheet(true)}
             className="flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-500/20"
@@ -514,6 +631,8 @@ export default function ChatRoom() {
                   mine={m.sender === user?.id}
                   mineClass={theme.mine}
                   reactions={reactions[m.id]}
+                  displayText={bodyFor(m)}
+                  cryptoKey={cryptoKey}
                   onQuickReact={() => doReact(m, '❤️')}
                   onOpenActions={() => setActionMsg(m)}
                 />
@@ -551,6 +670,21 @@ export default function ChatRoom() {
         {whisper && (
           <div className="mb-2 flex items-center gap-1 px-1 text-[11px] font-medium text-brand-500 dark:text-brand-400">
             🫧 Whisper mode — this message arrives blurred
+          </div>
+        )}
+
+        {encStatus === 'locked' && (
+          <button
+            type="button"
+            onClick={() => setShowEncModal(true)}
+            className="mb-2 flex w-full items-center gap-2 rounded-xl bg-red-50 px-3 py-2 text-left text-[12px] font-medium text-red-600 dark:bg-red-500/10 dark:text-red-400"
+          >
+            🔒 Locked — tap to unlock and read/send encrypted messages
+          </button>
+        )}
+        {encStatus === 'ready' && (
+          <div className="mb-2 flex items-center gap-1 px-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+            🔒 End-to-end encrypted
           </div>
         )}
 
@@ -650,7 +784,9 @@ export default function ChatRoom() {
                   sendMessage(e as any);
                 }
               }}
-              placeholder={whisper ? 'Whisper something…' : 'Type a message…'}
+              placeholder={
+                whisper ? 'Whisper something…' : encStatus === 'ready' ? 'Type an encrypted message…' : 'Type a message…'
+              }
               rows={1}
               className="max-h-28 flex-1 resize-none rounded-3xl border border-transparent bg-slate-100 px-5 py-3 text-sm outline-none transition focus:border-brand-500/30 focus:bg-white focus:ring-2 focus:ring-brand-500/30 dark:bg-white/10 dark:text-white dark:focus:bg-white/[0.07]"
             />
@@ -666,6 +802,16 @@ export default function ChatRoom() {
 
         <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={onImageSelected} />
       </form>
+
+      {showEncModal && (
+        <EncryptionModal
+          mode={encStatus === 'off' ? 'enable' : 'unlock'}
+          otherName={otherUser?.username}
+          error={crypto.error}
+          onSubmit={encStatus === 'off' ? crypto.enable : crypto.unlock}
+          onClose={() => setShowEncModal(false)}
+        />
+      )}
 
       {actionMsg && user && (
         <MessageActions
