@@ -281,6 +281,76 @@ export const api = {
       .eq('id', me);
   },
 
+  // --- checklist / plans ---------------------------------------------------
+  async listChecklist(conversationId: string): Promise<any[]> {
+    const { data, error } = await supabase
+      .from('checklist_items')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: true });
+    if (error) throw new Error(error.message);
+    return data || [];
+  },
+  async addChecklist(conversationId: string, text: string): Promise<void> {
+    const { error } = await supabase.from('checklist_items').insert({ conversation_id: conversationId, text });
+    if (error) throw new Error(error.message);
+  },
+  async toggleChecklist(id: string, done: boolean): Promise<void> {
+    await supabase.from('checklist_items').update({ done }).eq('id', id);
+  },
+  async deleteChecklist(id: string): Promise<void> {
+    await supabase.from('checklist_items').delete().eq('id', id);
+  },
+
+  // --- expenses (who owes who) ---------------------------------------------
+  async listExpenses(conversationId: string): Promise<any[]> {
+    const { data, error } = await supabase
+      .from('expenses')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: false });
+    if (error) throw new Error(error.message);
+    return data || [];
+  },
+  async addExpense(conversationId: string, payer: string, amount: number, note: string): Promise<void> {
+    const { error } = await supabase.from('expenses').insert({ conversation_id: conversationId, payer, amount, note });
+    if (error) throw new Error(error.message);
+  },
+  async deleteExpense(id: string): Promise<void> {
+    await supabase.from('expenses').delete().eq('id', id);
+  },
+
+  // --- polls ---------------------------------------------------------------
+  async listPolls(conversationId: string): Promise<any[]> {
+    const { data, error } = await supabase
+      .from('polls')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: false });
+    if (error) throw new Error(error.message);
+    return data || [];
+  },
+  async createPoll(conversationId: string, question: string, options: string[]): Promise<void> {
+    const { error } = await supabase.from('polls').insert({ conversation_id: conversationId, question, options });
+    if (error) throw new Error(error.message);
+  },
+  async votePoll(id: string, votes: Record<string, number>): Promise<void> {
+    await supabase.from('polls').update({ votes }).eq('id', id);
+  },
+  async deletePoll(id: string): Promise<void> {
+    await supabase.from('polls').delete().eq('id', id);
+  },
+
+  // --- activity ("wyd") + daily score --------------------------------------
+  async updateActivity(activity: string | null): Promise<void> {
+    const me = await myId();
+    await supabase.from('profiles').update({ activity }).eq('id', me);
+  },
+  async updateDayScore(score: number): Promise<void> {
+    const me = await myId();
+    await supabase.from('profiles').update({ day_score: score, day_score_at: todayUTC() }).eq('id', me);
+  },
+
   // --- games ---------------------------------------------------------------
   async getActiveGame(conversationId: string, type: string): Promise<any | null> {
     const { data, error } = await supabase

@@ -26,6 +26,7 @@ import MovieSheet from '../components/MovieSheet';
 import FunHub from '../components/FunHub';
 import GamePanel from '../components/GamePanel';
 import StatsSheet from '../components/StatsSheet';
+import SharedPanel from '../components/SharedPanel';
 import { ATTACKS } from '../lib/attacks';
 import { playSound } from '../lib/soundboard';
 import type { GameType } from '../lib/games';
@@ -66,6 +67,7 @@ export default function ChatRoom() {
   const [showFun, setShowFun] = useState(false);
   const [gameType, setGameType] = useState<GameType | null>(null);
   const [showStats, setShowStats] = useState(false);
+  const [showShared, setShowShared] = useState(false);
   const [actionMsg, setActionMsg] = useState<ChatMessage | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [showThemes, setShowThemes] = useState(false);
@@ -1406,6 +1408,7 @@ export default function ChatRoom() {
           onMovie={() => setShowMovies(true)}
           onGame={(t) => setGameType(t)}
           onStats={() => setShowStats(true)}
+          onShared={() => setShowShared(true)}
           onClose={() => setShowFun(false)}
         />
       )}
@@ -1417,6 +1420,16 @@ export default function ChatRoom() {
           other={otherUser.id}
           otherName={otherLabel}
           onClose={() => setShowStats(false)}
+        />
+      )}
+
+      {showShared && user && otherUser && (
+        <SharedPanel
+          conversationId={conversationId}
+          me={user.id}
+          other={otherUser.id}
+          otherName={otherLabel}
+          onClose={() => setShowShared(false)}
         />
       )}
 

@@ -11,12 +11,13 @@ interface Props {
   onMovie: () => void;
   onGame: (type: GameType) => void;
   onStats: () => void;
+  onShared: () => void;
   onClose: () => void;
 }
 
 // The Fun hub — one place for attacks, conversation prompts, and movie night.
 // More sections (games, polls, lists) get added here over time.
-export default function FunHub({ onAttack, onSound, onPrompt, onMovie, onGame, onStats, onClose }: Props) {
+export default function FunHub({ onAttack, onSound, onPrompt, onMovie, onGame, onStats, onShared, onClose }: Props) {
   const [pack, setPack] = useState<Pack | null>(null);
   const [line, setLine] = useState('');
 
@@ -140,6 +141,15 @@ export default function FunHub({ onAttack, onSound, onPrompt, onMovie, onGame, o
                 className="flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-700 transition active:scale-95 dark:bg-white/[0.05] dark:text-slate-200"
               >
                 <span className="text-lg">📊</span> Our stats
+              </button>
+              <button
+                onClick={() => {
+                  onClose();
+                  onShared();
+                }}
+                className="col-span-2 flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-700 transition active:scale-95 dark:bg-white/[0.05] dark:text-slate-200"
+              >
+                <span className="text-lg">🤝</span> Plans · Split · Polls
               </button>
             </div>
           </>
