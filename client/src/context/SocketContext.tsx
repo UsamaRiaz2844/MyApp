@@ -143,6 +143,9 @@ class SupabaseSocket implements RealtimeClient {
           mood: row.mood ?? null,
           lat: row.lat ?? null,
           lon: row.lon ?? null,
+          activity: row.activity ?? null,
+          dayScore: row.day_score ?? null,
+          dayScoreAt: row.day_score_at ?? null,
         });
       })
       .subscribe();

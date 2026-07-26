@@ -8,6 +8,7 @@ import {
   RPS_EMOJI,
   c4Drop,
   c4Winner,
+  newSecret,
   rpsResolve,
   tttLine,
   tttWinner,
@@ -42,6 +43,8 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
               ? { board: Array(9).fill(null) }
               : type === 'c4'
               ? { board: Array(C4_ROWS * C4_COLS).fill(null) }
+              : type === 'guess'
+              ? { secret: newSecret(), low: 1, high: 100, guesses: [] }
               : { choices: {}, round: 1 };
           const turn = type === 'rps' ? null : me;
           g = await api.createGame(conversationId, type, state, turn);
@@ -121,6 +124,34 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
     if (w && w !== 'draw') api.bumpScore(conversationId, w).catch(() => {});
   }
 
+  function guessPlay(value: number) {
+    if (!game || game.winner || game.turn !== me) return;
+    const s = game.state || {};
+    if (value === s.secret) {
+      const patch = {
+        state: { ...s, guesses: [...(s.guesses || []), { by: me, value, hint: 'higher' }] },
+        winner: me,
+      };
+      setGame({ ...game, ...patch });
+      api.updateGame(game.id, patch).catch(() => {});
+      api.bumpScore(conversationId, me).catch(() => {});
+      return;
+    }
+    const higher = value < s.secret;
+    const patch = {
+      state: {
+        ...s,
+        low: higher ? Math.max(s.low, value + 1) : s.low,
+        high: higher ? s.high : Math.min(s.high, value - 1),
+        guesses: [...(s.guesses || []), { by: me, value, hint: higher ? 'higher' : 'lower' }],
+      },
+      turn: other,
+      winner: null,
+    };
+    setGame({ ...game, ...patch });
+    api.updateGame(game.id, patch).catch(() => {});
+  }
+
   function rpsPick(choice: Rps) {
     if (!game || game.winner) return;
     const choices = { ...(game.state?.choices || {}) };
@@ -138,6 +169,8 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
         ? { state: { board: Array(9).fill(null) }, turn: me, winner: null }
         : type === 'c4'
         ? { state: { board: Array(C4_ROWS * C4_COLS).fill(null) }, turn: me, winner: null }
+        : type === 'guess'
+        ? { state: { secret: newSecret(), low: 1, high: 100, guesses: [] }, turn: me, winner: null }
         : { state: { choices: {}, round: (game.state?.round || 1) + 1 }, turn: null, winner: null };
     setGame({ ...game, ...patch });
     api.updateGame(game.id, patch).catch(() => {});
@@ -183,6 +216,8 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
           <TttBoard game={game} me={me} winner={winner} onPlay={tttPlay} />
         ) : type === 'c4' ? (
           <C4Board game={game} me={me} winner={winner} onDrop={c4Play} />
+        ) : type === 'guess' ? (
+          <GuessBoard game={game} me={me} winner={winner} onGuess={guessPlay} />
         ) : (
           <RpsBoard game={game} me={me} other={other} winner={winner} onPick={rpsPick} />
         )}
@@ -282,6 +317,68 @@ function C4Board({
               );
             })}
           </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function GuessBoard({
+  game,
+  me,
+  winner,
+  onGuess,
+}: {
+  game: any;
+  me: string;
+  winner: string | null;
+  onGuess: (n: number) => void;
+}) {
+  const [val, setVal] = useState('');
+  const s = game.state || {};
+  const guesses = (s.guesses || []) as { by: string; value: number; hint: string }[];
+  const myTurn = game.turn === me && !winner;
+  function submit() {
+    const n = parseInt(val, 10);
+    if (!Number.isFinite(n)) return;
+    setVal('');
+    onGuess(n);
+  }
+  return (
+    <div>
+      <p className="mb-3 text-center text-sm text-slate-500 dark:text-slate-400">
+        Guess a number between <b>{s.low}</b> and <b>{s.high}</b>
+      </p>
+      {!winner && (
+        <div className="mb-3 flex justify-center gap-2">
+          <input
+            value={val}
+            onChange={(e) => setVal(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && submit()}
+            inputMode="numeric"
+            disabled={!myTurn}
+            placeholder={myTurn ? 'Your guess' : 'Their turn…'}
+            className="w-32 rounded-xl bg-slate-100 px-3 py-2 text-center text-sm outline-none disabled:opacity-50 dark:bg-white/10 dark:text-white"
+          />
+          <button
+            onClick={submit}
+            disabled={!myTurn}
+            className="rounded-xl bg-brand-500 px-4 text-sm font-semibold text-white disabled:opacity-40"
+          >
+            Guess
+          </button>
+        </div>
+      )}
+      <div className="max-h-40 space-y-1 overflow-y-auto">
+        {[...guesses].reverse().map((g, i) => (
+          <div key={i} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-1.5 text-sm dark:bg-white/[0.05]">
+            <span className="font-semibold text-slate-700 dark:text-slate-200">
+              {g.by === me ? 'You' : 'Them'} guessed {g.value}
+            </span>
+            <span className="text-xs text-slate-400">
+              {winner && g.value === s.secret ? '🎯 correct!' : g.hint === 'higher' ? '⬆️ higher' : '⬇️ lower'}
+            </span>
+          </div>
         ))}
       </div>
     </div>
