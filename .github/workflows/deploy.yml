@@ -7,6 +7,7 @@ name: Deploy Pronto to GitHub Pages
 #     VITE_SUPABASE_URL       = https://YOUR-ref.supabase.co
 #     VITE_SUPABASE_ANON_KEY  = your anon/public key
 #     VITE_TMDB_KEY           = your TMDB API key (optional — enables "Movie night")
+#     VITE_GIPHY_KEY          = your Giphy API key (optional — enables GIF search)
 
 on:
   push:
@@ -39,6 +40,7 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_TMDB_KEY: ${{ secrets.VITE_TMDB_KEY }}
+          VITE_GIPHY_KEY: ${{ secrets.VITE_GIPHY_KEY }}
         run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

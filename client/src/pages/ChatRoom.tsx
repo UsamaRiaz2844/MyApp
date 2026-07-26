@@ -27,6 +27,7 @@ import FunHub from '../components/FunHub';
 import GamePanel from '../components/GamePanel';
 import StatsSheet from '../components/StatsSheet';
 import SharedPanel from '../components/SharedPanel';
+import GifSheet from '../components/GifSheet';
 import { ATTACKS } from '../lib/attacks';
 import { playSound } from '../lib/soundboard';
 import { dayFace, loadMyDay, today } from '../lib/activity';
@@ -69,6 +70,7 @@ export default function ChatRoom() {
   const [gameType, setGameType] = useState<GameType | null>(null);
   const [showStats, setShowStats] = useState(false);
   const [showShared, setShowShared] = useState(false);
+  const [showGif, setShowGif] = useState(false);
   const [actionMsg, setActionMsg] = useState<ChatMessage | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [showThemes, setShowThemes] = useState(false);
@@ -936,6 +938,16 @@ export default function ChatRoom() {
     playSound(id);
     socket?.emit('effect', { conversationId, kind: `sound:${id}` });
   }
+  async function sendGif(url: string) {
+    setShowGif(false);
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      await sendAttachment(blob, 'image', 'gif');
+    } catch {
+      window.alert('Could not send that GIF.');
+    }
+  }
 
   function chooseTheme(id: string) {
     setThemeId(id);
@@ -1446,9 +1458,12 @@ export default function ChatRoom() {
           onGame={(t) => setGameType(t)}
           onStats={() => setShowStats(true)}
           onShared={() => setShowShared(true)}
+          onGif={() => setShowGif(true)}
           onClose={() => setShowFun(false)}
         />
       )}
+
+      {showGif && <GifSheet onPick={sendGif} onClose={() => setShowGif(false)} />}
 
       {showStats && user && otherUser && (
         <StatsSheet
