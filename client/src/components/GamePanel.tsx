@@ -8,6 +8,7 @@ import {
   RPS_EMOJI,
   c4Drop,
   c4Winner,
+  fetchTrivia,
   newSecret,
   rpsResolve,
   tttLine,
@@ -38,15 +39,13 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
       try {
         let g = await api.getActiveGame(conversationId, type);
         if (!g) {
-          const state =
-            type === 'ttt'
-              ? { board: Array(9).fill(null) }
-              : type === 'c4'
-              ? { board: Array(C4_ROWS * C4_COLS).fill(null) }
-              : type === 'guess'
-              ? { secret: newSecret(), low: 1, high: 100, guesses: [] }
-              : { choices: {}, round: 1 };
-          const turn = type === 'rps' ? null : me;
+          let state: any;
+          if (type === 'ttt') state = { board: Array(9).fill(null) };
+          else if (type === 'c4') state = { board: Array(C4_ROWS * C4_COLS).fill(null) };
+          else if (type === 'guess') state = { secret: newSecret(), low: 1, high: 100, guesses: [] };
+          else if (type === 'trivia') state = (await fetchTrivia()) || { question: '', options: [], correct: 0, answers: {} };
+          else state = { choices: {}, round: 1 };
+          const turn = type === 'ttt' || type === 'c4' || type === 'guess' ? me : null;
           g = await api.createGame(conversationId, type, state, turn);
         }
         if (!alive) return;
@@ -162,24 +161,51 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
     api.updateGame(game.id, patch).catch(() => {});
   }
 
-  function playAgain() {
+  function triviaAnswer(idx: number) {
+    if (!game || game.winner) return;
+    const answers = { ...(game.state?.answers || {}) };
+    if (answers[me] != null) return;
+    answers[me] = idx;
+    const patch = { state: { ...game.state, answers } };
+    setGame({ ...game, ...patch });
+    api.updateGame(game.id, patch).catch(() => {});
+  }
+
+  // Trivia: once both have answered, one client (deterministic) reveals + scores.
+  useEffect(() => {
+    if (type !== 'trivia' || !game || game.winner) return;
+    const a = game.state?.answers || {};
+    if (a[me] != null && a[other] != null && me < other) {
+      api.updateGame(game.id, { winner: 'done' }).catch(() => {});
+      if (a[me] === game.state.correct) api.bumpScore(conversationId, me).catch(() => {});
+      if (a[other] === game.state.correct) api.bumpScore(conversationId, other).catch(() => {});
+    }
+  }, [game, type, me, other, conversationId]);
+
+  async function playAgain() {
     if (!game) return;
-    const patch =
-      type === 'ttt'
-        ? { state: { board: Array(9).fill(null) }, turn: me, winner: null }
-        : type === 'c4'
-        ? { state: { board: Array(C4_ROWS * C4_COLS).fill(null) }, turn: me, winner: null }
-        : type === 'guess'
-        ? { state: { secret: newSecret(), low: 1, high: 100, guesses: [] }, turn: me, winner: null }
-        : { state: { choices: {}, round: (game.state?.round || 1) + 1 }, turn: null, winner: null };
+    let patch: any;
+    if (type === 'ttt') patch = { state: { board: Array(9).fill(null) }, turn: me, winner: null };
+    else if (type === 'c4') patch = { state: { board: Array(C4_ROWS * C4_COLS).fill(null) }, turn: me, winner: null };
+    else if (type === 'guess') patch = { state: { secret: newSecret(), low: 1, high: 100, guesses: [] }, turn: me, winner: null };
+    else if (type === 'trivia')
+      patch = { state: (await fetchTrivia()) || { question: '', options: [], correct: 0, answers: {} }, turn: null, winner: null };
+    else patch = { state: { choices: {}, round: (game.state?.round || 1) + 1 }, turn: null, winner: null };
     setGame({ ...game, ...patch });
     api.updateGame(game.id, patch).catch(() => {});
   }
 
   const meta = GAME_META[type];
   const winner: string | null = game?.winner || null;
-  const resultText =
-    winner === 'draw' ? "It's a draw 🤝" : winner === me ? 'You win! 🎉' : winner ? `${otherName} wins 😤` : '';
+  let resultText = '';
+  if (type === 'trivia' && winner) {
+    const a = game?.state?.answers || {};
+    const myOk = a[me] === game?.state?.correct;
+    const otherOk = a[other] === game?.state?.correct;
+    resultText = myOk && otherOk ? 'You both nailed it! 🎉' : myOk ? 'You got it right! ✅' : otherOk ? `Only ${otherName} got it 😅` : 'Neither of you got it 🙈';
+  } else if (winner) {
+    resultText = winner === 'draw' ? "It's a draw 🤝" : winner === me ? 'You win! 🎉' : `${otherName} wins 😤`;
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
@@ -218,6 +244,8 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
           <C4Board game={game} me={me} winner={winner} onDrop={c4Play} />
         ) : type === 'guess' ? (
           <GuessBoard game={game} me={me} winner={winner} onGuess={guessPlay} />
+        ) : type === 'trivia' ? (
+          <TriviaBoard game={game} me={me} winner={winner} onAnswer={triviaAnswer} />
         ) : (
           <RpsBoard game={game} me={me} other={other} winner={winner} onPick={rpsPick} />
         )}
@@ -231,13 +259,17 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
                   🔄 Play again
                 </button>
               </>
-            ) : type !== 'rps' ? (
+            ) : type === 'ttt' || type === 'c4' || type === 'guess' ? (
               <p className="text-sm text-slate-500 dark:text-slate-400">
                 {game.turn === me ? 'Your turn' : `${otherName}'s turn…`}
               </p>
             ) : (
               <p className="text-sm text-slate-500 dark:text-slate-400">
-                {game.state?.choices?.[me] ? `Waiting for ${otherName}…` : 'Make your move'}
+                {(type === 'rps' ? game.state?.choices?.[me] : game.state?.answers?.[me] != null)
+                  ? `Waiting for ${otherName}…`
+                  : type === 'trivia'
+                  ? 'Pick your answer'
+                  : 'Make your move'}
               </p>
             )}
           </div>
@@ -380,6 +412,53 @@ function GuessBoard({
             </span>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function TriviaBoard({
+  game,
+  me,
+  winner,
+  onAnswer,
+}: {
+  game: any;
+  me: string;
+  winner: string | null;
+  onAnswer: (idx: number) => void;
+}) {
+  const s = game.state || {};
+  const options: string[] = s.options || [];
+  const myAnswer = s.answers?.[me];
+  const revealed = !!winner;
+  if (!s.question) return <p className="py-8 text-center text-sm text-slate-400">Loading question…</p>;
+  return (
+    <div>
+      <p className="mb-3 text-center font-semibold text-slate-800 dark:text-white">{s.question}</p>
+      <div className="space-y-2">
+        {options.map((opt, i) => {
+          const isCorrect = i === s.correct;
+          const isMine = myAnswer === i;
+          let cls = 'bg-slate-100 dark:bg-white/[0.06]';
+          if (revealed) {
+            if (isCorrect) cls = 'bg-green-100 text-green-800 dark:bg-green-500/25 dark:text-green-200';
+            else if (isMine) cls = 'bg-red-100 text-red-800 dark:bg-red-500/25 dark:text-red-200';
+          } else if (isMine) {
+            cls = 'bg-brand-100 ring-2 ring-brand-500 dark:bg-brand-500/20';
+          }
+          return (
+            <button
+              key={i}
+              onClick={() => onAnswer(i)}
+              disabled={myAnswer != null || revealed}
+              className={`w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium transition active:scale-[0.98] disabled:cursor-default ${cls}`}
+            >
+              {revealed && isCorrect ? '✅ ' : revealed && isMine ? '❌ ' : ''}
+              {opt}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

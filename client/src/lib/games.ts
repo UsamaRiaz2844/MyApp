@@ -1,14 +1,45 @@
 // Game rules for the in-chat mini-games. State is stored in the `games` table
 // and synced over Realtime; these helpers are pure logic.
 
-export type GameType = 'ttt' | 'rps' | 'c4' | 'guess';
+export type GameType = 'ttt' | 'rps' | 'c4' | 'guess' | 'trivia';
 
 export const GAME_META: Record<GameType, { label: string; icon: string }> = {
   ttt: { label: 'Tic-Tac-Toe', icon: '⭕' },
   c4: { label: 'Connect 4', icon: '🔴' },
   guess: { label: 'Guess the Number', icon: '🔢' },
+  trivia: { label: 'Trivia', icon: '🧠' },
   rps: { label: 'Rock Paper Scissors', icon: '✊' },
 };
+
+// ---- Trivia (Open Trivia DB, keyless) -------------------------------------
+export interface TriviaState {
+  question: string;
+  options: string[];
+  correct: number; // index in options
+  answers: Record<string, number>; // playerId -> chosen index
+}
+function decodeEntities(s: string): string {
+  const t = document.createElement('textarea');
+  t.innerHTML = s;
+  return t.value;
+}
+export async function fetchTrivia(): Promise<TriviaState | null> {
+  try {
+    const res = await fetch('https://opentdb.com/api.php?amount=1&type=multiple');
+    const data = await res.json();
+    const q = data.results?.[0];
+    if (!q) return null;
+    const correct = decodeEntities(q.correct_answer);
+    const options = [...q.incorrect_answers.map(decodeEntities), correct];
+    for (let i = options.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [options[i], options[j]] = [options[j], options[i]];
+    }
+    return { question: decodeEntities(q.question), options, correct: options.indexOf(correct), answers: {} };
+  } catch {
+    return null;
+  }
+}
 
 // ---- Guess the Number (higher / lower, turn-based) -------------------------
 export interface GuessState {
