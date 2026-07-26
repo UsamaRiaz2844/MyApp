@@ -22,6 +22,7 @@ import { getNickname, setNickname } from '../lib/nickname';
 import { type Coords, formatDistance, getCoords, geoPermission, haversineKm, loadMyCoords, saveMyCoords } from '../lib/geo';
 import PetCat from '../components/PetCat';
 import TypingSparks from '../components/TypingSparks';
+import MovieSheet from '../components/MovieSheet';
 import { catLook, catMood, moodLabel, petLevel } from '../lib/pet';
 import { decryptText, encryptText, encryptFile, greetMarker, isEncryptedText } from '../lib/crypto';
 import { formatClock, formatDuration, formatLastSeen } from '../utils/format';
@@ -55,9 +56,11 @@ export default function ChatRoom() {
   const [themeId, setThemeId] = useState<string | null>(null);
   const [fx, setFx] = useState<Fx | null>(null);
   const [nudgePulse, setNudgePulse] = useState(false);
+  const [punchKey, setPunchKey] = useState(0); // >0 while a punch impact plays
   const [actionMsg, setActionMsg] = useState<ChatMessage | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [showThemes, setShowThemes] = useState(false);
+  const [showMovies, setShowMovies] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordMs, setRecordMs] = useState(0);
@@ -258,6 +261,12 @@ export default function ChatRoom() {
     }
     function onEffect({ conversationId: cid, kind }: any) {
       if (cid !== conversationId) return;
+      if (kind === 'punch') {
+        navigator.vibrate?.([0, 90, 50, 140]); // a hard hit
+        setPunchKey((k) => k + 1);
+        setTimeout(() => setPunchKey(0), 650);
+        return;
+      }
       fxCounter.current += 1;
       setFx({ kind: kind === 'confetti' ? 'confetti' : 'hearts', id: fxCounter.current });
     }
@@ -882,6 +891,12 @@ export default function ChatRoom() {
     setNudgePulse(true);
     setTimeout(() => setNudgePulse(false), 1000);
   }
+  function throwPunch() {
+    socket?.emit('effect', { conversationId, kind: 'punch' });
+    navigator.vibrate?.([0, 90, 50, 140]);
+    setPunchKey((k) => k + 1);
+    setTimeout(() => setPunchKey(0), 650);
+  }
 
   function chooseTheme(id: string) {
     setThemeId(id);
@@ -925,7 +940,11 @@ export default function ChatRoom() {
   return (
     <div
       className="chat-surface animate-page-in relative flex h-[100dvh] flex-col"
-      style={{ background: bg, fontFamily: theme.font }}
+      style={{
+        background: bg,
+        fontFamily: theme.font,
+        animation: punchKey ? 'screen-shake 0.55s ease-in-out' : undefined,
+      }}
     >
       {bothHere && <div className="copresence-glow animate-glow-pulse" />}
       <div className="chat-texture pointer-events-none absolute inset-0 z-0" />
@@ -1005,6 +1024,15 @@ export default function ChatRoom() {
                   className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
                 >
                   ✏️ Set nickname
+                </button>
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setShowMovies(true);
+                  }}
+                  className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
+                >
+                  🎬 Movie night
                 </button>
                 <button
                   onClick={() => {
@@ -1106,6 +1134,13 @@ export default function ChatRoom() {
       {nudgePulse && (
         <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center">
           <div className="animate-heartbeat text-8xl drop-shadow-lg">💗</div>
+        </div>
+      )}
+
+      {punchKey > 0 && (
+        <div key={punchKey} className="pointer-events-none fixed inset-0 z-[60] flex items-center justify-center">
+          <div className="animate-punch-hit absolute text-[13rem] opacity-70">💥</div>
+          <div className="animate-punch-hit text-[8rem] drop-shadow-2xl">👊</div>
         </div>
       )}
 
@@ -1233,6 +1268,14 @@ export default function ChatRoom() {
           </button>
           <button
             type="button"
+            onClick={throwPunch}
+            title="Punch!"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50 text-lg transition active:scale-90 dark:bg-red-500/10"
+          >
+            👊
+          </button>
+          <button
+            type="button"
             onClick={() => playEffect('hearts')}
             title="Send hearts"
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-50 text-lg transition active:scale-90 dark:bg-rose-500/10"
@@ -1339,6 +1382,10 @@ export default function ChatRoom() {
           onSubmit={encStatus === 'off' ? crypto.enable : crypto.unlock}
           onClose={() => setShowEncModal(false)}
         />
+      )}
+
+      {showMovies && (
+        <MovieSheet onSuggest={(t) => setText((prev) => (prev ? `${prev} ${t}` : t))} onClose={() => setShowMovies(false)} />
       )}
 
       {actionMsg && user && (

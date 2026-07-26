@@ -6,6 +6,7 @@ name: Deploy Pronto to GitHub Pages
 #   Settings -> Secrets and variables -> Actions -> New repository secret:
 #     VITE_SUPABASE_URL       = https://YOUR-ref.supabase.co
 #     VITE_SUPABASE_ANON_KEY  = your anon/public key
+#     VITE_TMDB_KEY           = your TMDB API key (optional — enables "Movie night")
 
 on:
   push:
@@ -37,6 +38,7 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_TMDB_KEY: ${{ secrets.VITE_TMDB_KEY }}
         run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:
