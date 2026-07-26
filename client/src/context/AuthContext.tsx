@@ -9,6 +9,7 @@ interface AuthContextValue {
   login: (username: string, password: string) => Promise<void>;
   register: (username: string, password: string) => Promise<void>;
   logout: () => void;
+  setAvatar: (url: string | null) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -23,6 +24,7 @@ async function loadProfile(userId: string, fallback: { username: string }): Prom
       username: data.username,
       displayName: data.display_name || data.username,
       avatarColor: data.avatar_color || '#6366f1',
+      avatarUrl: data.avatar_url || null,
     };
   }
   return { id: userId, username: fallback.username, displayName: fallback.username, avatarColor: pickAvatarColor(fallback.username) };
@@ -114,8 +116,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }
 
+  function setAvatar(url: string | null) {
+    setUser((prev) => (prev ? { ...prev, avatarUrl: url } : prev));
+  }
+
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout }}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ user, token, loading, login, register, logout, setAvatar }}>
+      {children}
+    </AuthContext.Provider>
   );
 }
 

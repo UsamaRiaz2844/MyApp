@@ -8,6 +8,7 @@ export function mapProfile(row: any): OtherUser {
     username: row.username,
     displayName: row.display_name || row.username,
     avatarColor: row.avatar_color || '#6366f1',
+    avatarUrl: row.avatar_url || null,
     isOnline: !!row.is_online,
     lastSeen: row.last_seen || null,
   };

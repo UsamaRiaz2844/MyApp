@@ -3,6 +3,7 @@ export interface AuthUser {
   username: string;
   displayName: string;
   avatarColor: string;
+  avatarUrl?: string | null;
 }
 
 export interface OtherUser {
@@ -10,6 +11,7 @@ export interface OtherUser {
   username: string;
   displayName: string;
   avatarColor: string;
+  avatarUrl?: string | null;
   isOnline: boolean;
   lastSeen: string | null;
 }
