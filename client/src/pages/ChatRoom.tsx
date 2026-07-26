@@ -24,7 +24,9 @@ import PetCat from '../components/PetCat';
 import TypingSparks from '../components/TypingSparks';
 import MovieSheet from '../components/MovieSheet';
 import FunHub from '../components/FunHub';
+import GamePanel from '../components/GamePanel';
 import { ATTACKS } from '../lib/attacks';
+import type { GameType } from '../lib/games';
 import { catLook, catMood, moodLabel, petLevel } from '../lib/pet';
 import { decryptText, encryptText, encryptFile, greetMarker, isEncryptedText } from '../lib/crypto';
 import { formatClock, formatDuration, formatLastSeen } from '../utils/format';
@@ -60,6 +62,7 @@ export default function ChatRoom() {
   const [nudgePulse, setNudgePulse] = useState(false);
   const [hit, setHit] = useState<{ kind: string; key: number } | null>(null); // attack impact playing
   const [showFun, setShowFun] = useState(false);
+  const [gameType, setGameType] = useState<GameType | null>(null);
   const [actionMsg, setActionMsg] = useState<ChatMessage | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [showThemes, setShowThemes] = useState(false);
@@ -1389,7 +1392,19 @@ export default function ChatRoom() {
           onAttack={sendAttack}
           onPrompt={(t) => setText((prev) => (prev ? `${prev} ${t}` : t))}
           onMovie={() => setShowMovies(true)}
+          onGame={(t) => setGameType(t)}
           onClose={() => setShowFun(false)}
+        />
+      )}
+
+      {gameType && user && otherUser && (
+        <GamePanel
+          conversationId={conversationId}
+          type={gameType}
+          me={user.id}
+          other={otherUser.id}
+          otherName={otherLabel}
+          onClose={() => setGameType(null)}
         />
       )}
 

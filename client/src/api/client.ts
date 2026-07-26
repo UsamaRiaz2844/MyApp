@@ -281,6 +281,46 @@ export const api = {
       .eq('id', me);
   },
 
+  // --- games ---------------------------------------------------------------
+  async getActiveGame(conversationId: string, type: string): Promise<any | null> {
+    const { data, error } = await supabase
+      .from('games')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .eq('type', type)
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data;
+  },
+  async createGame(conversationId: string, type: string, state: any, turn: string | null): Promise<any> {
+    const { data, error } = await supabase
+      .from('games')
+      .insert({ conversation_id: conversationId, type, state, turn })
+      .select('*')
+      .single();
+    if (error) throw new Error(error.message);
+    return data;
+  },
+  async updateGame(id: string, patch: { state?: any; turn?: string | null; winner?: string | null; status?: string }): Promise<void> {
+    const { error } = await supabase
+      .from('games')
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) throw new Error(error.message);
+  },
+  async getScores(conversationId: string): Promise<Record<string, number>> {
+    const { data } = await supabase.from('game_scores').select('user_id, wins').eq('conversation_id', conversationId);
+    const out: Record<string, number> = {};
+    (data || []).forEach((r: any) => (out[r.user_id] = r.wins));
+    return out;
+  },
+  async bumpScore(conversationId: string, userId: string): Promise<void> {
+    await supabase.rpc('bump_game_score', { p_conv: conversationId, p_user: userId });
+  },
+
   // --- pet (shared chat cat) -----------------------------------------------
   async getPet(conversationId: string): Promise<{ streak: number; xp: number }> {
     try {
