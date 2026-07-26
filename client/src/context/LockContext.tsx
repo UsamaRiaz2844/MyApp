@@ -1,12 +1,17 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { authenticateBiometric, biometricEnabled, forgetBiometric, registerBiometric } from '../lib/biometric';
 
 interface LockContextValue {
   enabled: boolean;
   locked: boolean;
+  bioEnabled: boolean;
   setPin: (pin: string) => Promise<void>;
   disable: () => void;
   unlock: (pin: string) => Promise<boolean>;
   lockNow: () => void;
+  enableBiometric: () => Promise<boolean>;
+  disableBiometric: () => void;
+  unlockWithBiometric: () => Promise<boolean>;
 }
 
 const LockContext = createContext<LockContextValue | null>(null);
@@ -23,6 +28,7 @@ async function sha256(text: string): Promise<string> {
 export function LockProvider({ children }: { children: React.ReactNode }) {
   const [enabled, setEnabled] = useState(() => !!localStorage.getItem(KEY));
   const [locked, setLocked] = useState(() => !!localStorage.getItem(KEY));
+  const [bioEnabled, setBioEnabled] = useState(() => biometricEnabled());
 
   useEffect(() => {
     // Lock the moment the app is backgrounded (or the window loses focus) so the
@@ -50,6 +56,8 @@ export function LockProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem(KEY);
     setEnabled(false);
     setLocked(false);
+    forgetBiometric();
+    setBioEnabled(false);
   }
   async function unlock(pin: string) {
     const ok = (await sha256(pin)) === localStorage.getItem(KEY);
@@ -59,9 +67,36 @@ export function LockProvider({ children }: { children: React.ReactNode }) {
   function lockNow() {
     if (localStorage.getItem(KEY)) setLocked(true);
   }
+  function disableBio() {
+    forgetBiometric();
+    setBioEnabled(false);
+  }
+  async function enableBiometric() {
+    const ok = await registerBiometric();
+    if (ok) setBioEnabled(true);
+    return ok;
+  }
+  async function unlockWithBiometric() {
+    const ok = await authenticateBiometric();
+    if (ok) setLocked(false);
+    return ok;
+  }
 
   return (
-    <LockContext.Provider value={{ enabled, locked, setPin, disable, unlock, lockNow }}>
+    <LockContext.Provider
+      value={{
+        enabled,
+        locked,
+        bioEnabled,
+        setPin,
+        disable,
+        unlock,
+        lockNow,
+        enableBiometric,
+        disableBiometric: disableBio,
+        unlockWithBiometric,
+      }}
+    >
       {children}
     </LockContext.Provider>
   );

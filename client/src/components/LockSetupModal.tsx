@@ -1,9 +1,10 @@
 import { useLock } from '../context/LockContext';
 import PinPad from './PinPad';
+import { biometricSupported } from '../lib/biometric';
 
 // Set or remove the app PIN. Opened from the profile menu.
 export default function LockSetupModal({ onClose }: { onClose: () => void }) {
-  const { enabled, setPin, disable } = useLock();
+  const { enabled, setPin, disable, bioEnabled, enableBiometric, disableBiometric } = useLock();
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-6" onClick={onClose}>
@@ -18,6 +19,21 @@ export default function LockSetupModal({ onClose }: { onClose: () => void }) {
             <p className="mb-5 text-sm text-slate-500 dark:text-slate-400">
               Pronto asks for your PIN when reopened.
             </p>
+            {biometricSupported() && (
+              <button
+                onClick={async () => {
+                  if (bioEnabled) {
+                    disableBiometric();
+                  } else {
+                    const ok = await enableBiometric();
+                    if (!ok) window.alert('Could not set up biometrics on this device.');
+                  }
+                }}
+                className="mb-2 w-full rounded-xl bg-slate-100 py-3 text-sm font-semibold text-slate-700 dark:bg-white/10 dark:text-slate-200"
+              >
+                {bioEnabled ? '☝️ Turn off biometric unlock' : '☝️ Enable fingerprint / Face unlock'}
+              </button>
+            )}
             <button
               onClick={() => {
                 disable();
