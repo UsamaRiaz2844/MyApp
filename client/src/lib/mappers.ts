@@ -28,6 +28,7 @@ export function mapMessage(row: any): ChatMessage {
     attachmentType: row.attachment_type ?? null,
     attachmentDurationMs: row.attachment_duration_ms ?? null,
     isEncrypted: !!row.is_encrypted,
+    replyTo: row.reply_to ?? null,
   };
 }
 

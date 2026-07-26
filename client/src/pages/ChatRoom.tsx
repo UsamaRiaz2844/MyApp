@@ -7,7 +7,7 @@ import { useTheme } from '../context/ThemeContext';
 import Avatar from '../components/Avatar';
 import TypingDots from '../components/TypingDots';
 import LateStatsSheet from '../components/LateStatsSheet';
-import MessageBubble from '../components/MessageBubble';
+import MessageBubble, { QuotedPreview } from '../components/MessageBubble';
 import MessageActions from '../components/MessageActions';
 import EffectsOverlay, { Fx } from '../components/EffectsOverlay';
 import EncryptionModal from '../components/EncryptionModal';
@@ -59,6 +59,10 @@ export default function ChatRoom() {
   const [decrypted, setDecrypted] = useState<Record<string, string>>({});
   const [showEncModal, setShowEncModal] = useState(false);
   const refreshedForEnc = useRef(false);
+
+  // --- replies --------------------------------------------------------------
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -244,6 +248,29 @@ export default function ChatRoom() {
     return m.text || ''; // encrypted media-only message: no text body
   }
 
+  // A one-line description of a message, for reply quotes.
+  function describeMessage(orig: ChatMessage): QuotedPreview {
+    const mineOrig = orig.sender === user?.id;
+    let label: string;
+    if (orig.attachmentType === 'image') label = '📷 Photo';
+    else if (orig.attachmentType === 'audio') label = '🎤 Voice message';
+    else label = bodyFor(orig) || 'Message';
+    return { author: mineOrig ? 'You' : `@${otherUser?.username ?? ''}`, label, mine: mineOrig };
+  }
+  function quotedFor(m: ChatMessage): QuotedPreview | null {
+    if (!m.replyTo) return null;
+    const orig = messageById.get(m.replyTo);
+    if (!orig) return { author: 'Message', label: 'Message unavailable', mine: false };
+    return describeMessage(orig);
+  }
+  function jumpToMessage(id: string) {
+    const el = document.getElementById(`msg-${id}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHighlightId(id);
+    setTimeout(() => setHighlightId((cur) => (cur === id ? null : cur)), 1500);
+  }
+
   function handleTextChange(v: string) {
     setText(v);
     if (!socket) return;
@@ -263,6 +290,7 @@ export default function ChatRoom() {
       return;
     }
     const wasWhisper = whisper;
+    const replyToId = replyTo?.id ?? null;
     const encrypt = encStatus === 'ready' && !!cryptoKey;
     let payloadText = trimmed;
     let marker: 'greet' | 'bye' | null = null;
@@ -288,16 +316,18 @@ export default function ChatRoom() {
       delayMs: null,
       isWhisper: wasWhisper,
       isEncrypted: encrypt,
+      replyTo: replyToId,
     };
     if (encrypt) setDecrypted((prev) => ({ ...prev, [tempId]: trimmed }));
     setMessages((prev) => [...prev, optimistic]);
     setText('');
     setWhisper(false);
+    setReplyTo(null);
     socket.emit('typing', { conversationId, isTyping: false, text: '' });
 
     socket.emit(
       'message:send',
-      { conversationId, text: payloadText, isWhisper: wasWhisper, isEncrypted: encrypt, encMarker: marker },
+      { conversationId, text: payloadText, isWhisper: wasWhisper, isEncrypted: encrypt, encMarker: marker, replyTo: replyToId },
       (res: any) => {
         if (res?.message) {
           if (encrypt) setDecrypted((prev) => ({ ...prev, [res.message.id]: trimmed }));
@@ -322,7 +352,9 @@ export default function ChatRoom() {
     }
     const encrypt = encStatus === 'ready' && !!cryptoKey;
     const wasWhisper = whisper;
+    const replyToId = replyTo?.id ?? null;
     setWhisper(false);
+    setReplyTo(null);
     // Optimistic bubble shows the local plaintext (not encrypted) so it appears
     // instantly; the server row that replaces it carries the encrypted URL.
     const localUrl = URL.createObjectURL(blob);
@@ -341,6 +373,7 @@ export default function ChatRoom() {
       attachmentType: type,
       attachmentDurationMs: durationMs ?? null,
       isEncrypted: false,
+      replyTo: replyToId,
     };
     setMessages((prev) => [...prev, optimistic]);
     setUploading(true);
@@ -359,6 +392,7 @@ export default function ChatRoom() {
           attachmentType: type,
           attachmentDurationMs: durationMs,
           isEncrypted: encrypt,
+          replyTo: replyToId,
         },
         (res: any) => {
           URL.revokeObjectURL(localUrl);
@@ -509,6 +543,12 @@ export default function ChatRoom() {
     }
   }
 
+  const messageById = useMemo(() => {
+    const map = new Map<string, ChatMessage>();
+    for (const x of messages) map.set(x.id, x);
+    return map;
+  }, [messages]);
+
   const grouped = useMemo(() => {
     const groups: { day: string; items: ChatMessage[] }[] = [];
     for (const m of messages) {
@@ -633,8 +673,12 @@ export default function ChatRoom() {
                   reactions={reactions[m.id]}
                   displayText={bodyFor(m)}
                   cryptoKey={cryptoKey}
+                  quoted={quotedFor(m)}
+                  highlighted={highlightId === m.id}
                   onQuickReact={() => doReact(m, '❤️')}
                   onOpenActions={() => setActionMsg(m)}
+                  onReply={() => setReplyTo(m)}
+                  onQuoteTap={() => m.replyTo && jumpToMessage(m.replyTo)}
                 />
               ))}
             </div>
@@ -667,6 +711,25 @@ export default function ChatRoom() {
         onSubmit={sendMessage}
         className="safe-bottom border-t border-black/5 bg-white/70 px-3 pb-12 pt-2.5 backdrop-blur dark:border-white/5 dark:bg-black/30"
       >
+        {replyTo && (
+          <div className="mb-2 flex items-stretch gap-2 rounded-xl bg-slate-100 pr-1 dark:bg-white/5">
+            <div className="min-w-0 flex-1 border-l-2 border-brand-500 py-1.5 pl-2.5 dark:border-brand-400">
+              <p className="text-[11px] font-semibold text-brand-600 dark:text-brand-300">
+                Replying to {describeMessage(replyTo).mine ? 'yourself' : `@${otherUser?.username ?? ''}`}
+              </p>
+              <p className="truncate text-[12px] text-slate-500 dark:text-slate-300">{describeMessage(replyTo).label}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReplyTo(null)}
+              className="flex w-8 shrink-0 items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              title="Cancel reply"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {whisper && (
           <div className="mb-2 flex items-center gap-1 px-1 text-[11px] font-medium text-brand-500 dark:text-brand-400">
             🫧 Whisper mode — this message arrives blurred
@@ -819,6 +882,10 @@ export default function ChatRoom() {
           currentReaction={reactions[actionMsg.id]?.[user.id]}
           onReact={(emoji) => {
             doReact(actionMsg, emoji);
+            setActionMsg(null);
+          }}
+          onReply={() => {
+            setReplyTo(actionMsg);
             setActionMsg(null);
           }}
           onDelete={() => doDelete(actionMsg)}

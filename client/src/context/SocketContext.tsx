@@ -188,6 +188,7 @@ class SupabaseSocket implements RealtimeClient {
       attachmentDurationMs?: number;
       isEncrypted?: boolean;
       encMarker?: 'greet' | 'bye' | null;
+      replyTo?: string | null;
     },
     ack?: (res: any) => void
   ) {
@@ -209,6 +210,7 @@ class SupabaseSocket implements RealtimeClient {
       row.is_encrypted = true;
       if (payload.encMarker) row.enc_marker = payload.encMarker;
     }
+    if (payload.replyTo) row.reply_to = payload.replyTo;
     const { data, error } = await supabase.from('messages').insert(row).select().single();
     if (error || !data) return ack?.({ error: error?.message || 'Failed to send message' });
     ack?.({ message: mapMessage(data) });

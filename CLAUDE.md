@@ -65,7 +65,18 @@ Supabase so the pages barely changed:
 Late-reply timer · live typing preview · "we're both here" glow · nudge · screen effects
 (hearts/confetti) · whisper messages · reactions · per-chat themes · delete message · delete chat
 · app screen-lock (PIN, `client/src/context/LockContext.tsx`) · **image messages** · **voice notes**
-· **end-to-end encryption**.
+· **end-to-end encryption** · **quoted replies**.
+
+### Quoted replies (WhatsApp-style)
+- Migration: `supabase/reply.sql` — adds a nullable `reply_to uuid` on `messages` (references
+  `messages(id) on delete set null`). **Must be run in Supabase for replies to work**; the client
+  only writes `reply_to` when set, so sending still works without it.
+- UX: swipe a bubble right (or long-press → Reply) to quote it; the composer shows a "Replying to…"
+  bar, and the sent message renders the quoted original inside the bubble. Tapping a quote jumps to
+  and briefly highlights the original. Swipe gesture + quote rendering live in `MessageBubble`;
+  `ChatRoom` holds `replyTo` state, resolves the quote via a `messageById` map, and passes
+  `reply_to` through `sendMessage`/`sendAttachment`. Works with encrypted messages (quote uses the
+  decrypted body) and media (shows "📷 Photo" / "🎤 Voice message").
 
 ### End-to-end encryption (shared passphrase)
 - Migration: `supabase/encryption.sql` — adds `is_encrypted` + `enc_marker` on `messages`,
