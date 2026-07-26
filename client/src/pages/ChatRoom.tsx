@@ -64,6 +64,10 @@ export default function ChatRoom() {
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
 
+  // --- editing --------------------------------------------------------------
+  const [editing, setEditing] = useState<ChatMessage | null>(null);
+  const messagesRef = useRef<ChatMessage[]>([]);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fxCounter = useRef(0);
@@ -93,6 +97,10 @@ export default function ChatRoom() {
     api.getReactions(conversationId).then((d) => setReactions(d.reactions)).catch(() => {});
     api.getTheme(conversationId).then((d) => setThemeId(d.theme)).catch(() => {});
   }, [conversationId]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     if (!socket) return;
@@ -159,6 +167,21 @@ export default function ChatRoom() {
       if (cid && cid !== conversationId) return;
       setMessages((prev) => prev.filter((m) => m.id !== id));
     }
+    function onMessageUpdated(msg: ChatMessage) {
+      if (msg.conversation !== conversationId) return;
+      const existing = messagesRef.current.find((m) => m.id === msg.id);
+      const textChanged = !!existing && existing.text !== msg.text;
+      setMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, ...msg } : m)));
+      if (textChanged) {
+        // The body was edited — drop the cached decryption so it re-decrypts.
+        setDecrypted((prev) => {
+          if (prev[msg.id] === undefined) return prev;
+          const copy = { ...prev };
+          delete copy[msg.id];
+          return copy;
+        });
+      }
+    }
     function onConvUpdated({ id, theme: t }: any) {
       if (id === conversationId) setThemeId(t ?? null);
     }
@@ -176,6 +199,7 @@ export default function ChatRoom() {
     socket.on('effect', onEffect);
     socket.on('reaction:update', onReaction);
     socket.on('message:deleted', onMessageDeleted);
+    socket.on('message:updated', onMessageUpdated);
     socket.on('conversation:updated', onConvUpdated);
     socket.on('conversation:deleted', onConvDeleted);
     return () => {
@@ -189,6 +213,7 @@ export default function ChatRoom() {
       socket.off('effect', onEffect);
       socket.off('reaction:update', onReaction);
       socket.off('message:deleted', onMessageDeleted);
+      socket.off('message:updated', onMessageUpdated);
       socket.off('conversation:updated', onConvUpdated);
       socket.off('conversation:deleted', onConvDeleted);
     };
@@ -271,9 +296,73 @@ export default function ChatRoom() {
     setTimeout(() => setHighlightId((cur) => (cur === id ? null : cur)), 1500);
   }
 
+  // Only your own text messages can be edited (and, if encrypted, only when
+  // you can actually read them on this device).
+  function canEditMsg(m: ChatMessage): boolean {
+    if (m.sender !== user?.id || m.attachmentType) return false;
+    return m.isEncrypted ? decrypted[m.id] !== undefined : !!m.text;
+  }
+  function startEdit(m: ChatMessage) {
+    setReplyTo(null);
+    setEditing(m);
+    setText(bodyFor(m));
+  }
+  function cancelEdit() {
+    setEditing(null);
+    setText('');
+  }
+  async function performEdit() {
+    const target = editing;
+    const trimmed = text.trim();
+    if (!target) return;
+    if (!trimmed) {
+      cancelEdit();
+      return;
+    }
+    if (trimmed === bodyFor(target)) {
+      cancelEdit(); // unchanged
+      return;
+    }
+    const encrypt = encStatus === 'ready' && !!cryptoKey;
+    const oldPlain = bodyFor(target); // for reverting on failure
+    let payloadText = trimmed;
+    if (encrypt) {
+      try {
+        payloadText = await encryptText(cryptoKey!, trimmed);
+      } catch {
+        window.alert('Encryption failed — message not edited.');
+        return;
+      }
+    }
+    const editedAt = new Date().toISOString();
+    // Optimistic update; realtime will confirm.
+    setMessages((prev) =>
+      prev.map((m) => (m.id === target.id ? { ...m, text: payloadText, isEncrypted: encrypt, editedAt } : m))
+    );
+    setDecrypted((prev) => {
+      const copy = { ...prev };
+      if (encrypt) copy[target.id] = trimmed;
+      else delete copy[target.id];
+      return copy;
+    });
+    setEditing(null);
+    setText('');
+    try {
+      await api.editMessage(target.id, payloadText, encrypt);
+    } catch (e: any) {
+      // Roll back the optimistic edit so we don't show a change that wasn't saved.
+      setMessages((prev) => prev.map((m) => (m.id === target.id ? target : m)));
+      setDecrypted((prev) => {
+        if (!target.isEncrypted) return prev;
+        return { ...prev, [target.id]: oldPlain };
+      });
+      window.alert(e?.message || 'Could not edit message. (Has the edit.sql migration been run?)');
+    }
+  }
+
   function handleTextChange(v: string) {
     setText(v);
-    if (!socket) return;
+    if (!socket || editing) return; // don't broadcast a typing preview while editing
     socket.emit('typing', { conversationId, isTyping: v.length > 0, text: v });
     if (typingTimeout.current) clearTimeout(typingTimeout.current);
     typingTimeout.current = setTimeout(() => socket.emit('typing', { conversationId, isTyping: false, text: '' }), 2500);
@@ -281,6 +370,10 @@ export default function ChatRoom() {
 
   async function sendMessage(e: React.FormEvent) {
     e.preventDefault();
+    if (editing) {
+      await performEdit();
+      return;
+    }
     const trimmed = text.trim();
     if (!trimmed || !socket) return;
     // Encryption enabled on this conversation but locked on this device — must
@@ -711,7 +804,24 @@ export default function ChatRoom() {
         onSubmit={sendMessage}
         className="safe-bottom border-t border-black/5 bg-white/70 px-3 pb-12 pt-2.5 backdrop-blur dark:border-white/5 dark:bg-black/30"
       >
-        {replyTo && (
+        {editing && (
+          <div className="mb-2 flex items-stretch gap-2 rounded-xl bg-amber-50 pr-1 dark:bg-amber-500/10">
+            <div className="min-w-0 flex-1 border-l-2 border-amber-500 py-1.5 pl-2.5 dark:border-amber-400">
+              <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">✏️ Editing message</p>
+              <p className="truncate text-[12px] text-slate-500 dark:text-slate-300">{bodyFor(editing)}</p>
+            </div>
+            <button
+              type="button"
+              onClick={cancelEdit}
+              className="flex w-8 shrink-0 items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              title="Cancel edit"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {replyTo && !editing && (
           <div className="mb-2 flex items-stretch gap-2 rounded-xl bg-slate-100 pr-1 dark:bg-white/5">
             <div className="min-w-0 flex-1 border-l-2 border-brand-500 py-1.5 pl-2.5 dark:border-brand-400">
               <p className="text-[11px] font-semibold text-brand-600 dark:text-brand-300">
@@ -848,7 +958,13 @@ export default function ChatRoom() {
                 }
               }}
               placeholder={
-                whisper ? 'Whisper something…' : encStatus === 'ready' ? 'Type an encrypted message…' : 'Type a message…'
+                editing
+                  ? 'Edit your message…'
+                  : whisper
+                  ? 'Whisper something…'
+                  : encStatus === 'ready'
+                  ? 'Type an encrypted message…'
+                  : 'Type a message…'
               }
               rows={1}
               className="max-h-28 flex-1 resize-none rounded-3xl border border-transparent bg-slate-100 px-5 py-3 text-sm outline-none transition focus:border-brand-500/30 focus:bg-white focus:ring-2 focus:ring-brand-500/30 dark:bg-white/10 dark:text-white dark:focus:bg-white/[0.07]"
@@ -858,7 +974,7 @@ export default function ChatRoom() {
               disabled={!text.trim()}
               className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white shadow-lg transition active:scale-90 disabled:opacity-40 ${theme.mine}`}
             >
-              ➤
+              {editing ? '✓' : '➤'}
             </button>
           </div>
         )}
@@ -886,6 +1002,11 @@ export default function ChatRoom() {
           }}
           onReply={() => {
             setReplyTo(actionMsg);
+            setActionMsg(null);
+          }}
+          canEdit={canEditMsg(actionMsg)}
+          onEdit={() => {
+            startEdit(actionMsg);
             setActionMsg(null);
           }}
           onDelete={() => doDelete(actionMsg)}

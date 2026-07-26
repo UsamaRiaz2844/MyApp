@@ -65,7 +65,19 @@ Supabase so the pages barely changed:
 Late-reply timer · live typing preview · "we're both here" glow · nudge · screen effects
 (hearts/confetti) · whisper messages · reactions · per-chat themes · delete message · delete chat
 · app screen-lock (PIN, `client/src/context/LockContext.tsx`) · **image messages** · **voice notes**
-· **end-to-end encryption** · **quoted replies**.
+· **end-to-end encryption** · **quoted replies** · **edit message**.
+
+### Edit message (WhatsApp-style)
+- Migration: `supabase/edit.sql` — adds `edited_at timestamptz` on `messages` and a
+  `messages_update_own` RLS policy so the **sender** can update their own row (the base schema only
+  let the receiver update, for seen). **Must be run in Supabase for editing to persist.**
+- UX: long-press your own text message → **Edit**; the composer loads the text with an "Editing
+  message" bar (send button becomes ✓). `api.editMessage` updates the row + stamps `edited_at`;
+  bubbles show an "edited" label. Only your own **text** messages are editable (media excluded);
+  encrypted messages are re-encrypted on edit and only editable when unlocked.
+- Realtime: the socket shim dispatches `message:updated` (mapped row) on any `messages` UPDATE for a
+  participant; `ChatRoom` merges it and, when the text changed, drops the cached decryption so it
+  re-decrypts.
 
 ### Quoted replies (WhatsApp-style)
 - Migration: `supabase/reply.sql` — adds a nullable `reply_to uuid` on `messages` (references

@@ -3,14 +3,25 @@ import { REACTION_EMOJIS } from '../lib/themes';
 interface Props {
   isMine: boolean;
   currentReaction?: string;
+  canEdit?: boolean;
   onReact: (emoji: string) => void;
   onReply: () => void;
+  onEdit: () => void;
   onDelete: () => void;
   onClose: () => void;
 }
 
 // Bottom action sheet shown when a message is long-pressed.
-export default function MessageActions({ isMine, currentReaction, onReact, onReply, onDelete, onClose }: Props) {
+export default function MessageActions({
+  isMine,
+  currentReaction,
+  canEdit,
+  onReact,
+  onReply,
+  onEdit,
+  onDelete,
+  onClose,
+}: Props) {
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
       <div
@@ -39,6 +50,14 @@ export default function MessageActions({ isMine, currentReaction, onReact, onRep
         >
           ↩︎ Reply
         </button>
+        {canEdit && (
+          <button
+            onClick={onEdit}
+            className="mt-2 w-full rounded-xl bg-slate-100 py-3 text-sm font-semibold text-slate-700 transition active:scale-[0.99] dark:bg-white/10 dark:text-slate-200"
+          >
+            ✏️ Edit
+          </button>
+        )}
         {isMine && (
           <button
             onClick={onDelete}
