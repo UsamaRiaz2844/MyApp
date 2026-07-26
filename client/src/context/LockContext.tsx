@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 
 interface LockContextValue {
   enabled: boolean;
@@ -12,7 +12,6 @@ interface LockContextValue {
 const LockContext = createContext<LockContextValue | null>(null);
 
 const KEY = 'pronto_lock_hash';
-const RELOCK_MS = 15000; // re-lock if app was backgrounded longer than this
 
 async function sha256(text: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
@@ -24,18 +23,22 @@ async function sha256(text: string): Promise<string> {
 export function LockProvider({ children }: { children: React.ReactNode }) {
   const [enabled, setEnabled] = useState(() => !!localStorage.getItem(KEY));
   const [locked, setLocked] = useState(() => !!localStorage.getItem(KEY));
-  const hiddenAt = useRef<number | null>(null);
 
   useEffect(() => {
+    // Lock the moment the app is backgrounded (or the window loses focus) so the
+    // PIN is required on return. Only when a PIN is actually set.
+    function lockIfHidden() {
+      if (localStorage.getItem(KEY)) setLocked(true);
+    }
     function onVisibility() {
-      if (document.visibilityState === 'hidden') {
-        hiddenAt.current = Date.now();
-      } else if (localStorage.getItem(KEY) && hiddenAt.current && Date.now() - hiddenAt.current > RELOCK_MS) {
-        setLocked(true);
-      }
+      if (document.visibilityState === 'hidden') lockIfHidden();
     }
     document.addEventListener('visibilitychange', onVisibility);
-    return () => document.removeEventListener('visibilitychange', onVisibility);
+    window.addEventListener('blur', lockIfHidden);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('blur', lockIfHidden);
+    };
   }, []);
 
   async function setPin(pin: string) {
