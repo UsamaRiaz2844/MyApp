@@ -23,6 +23,8 @@ import { type Coords, formatDistance, getCoords, geoPermission, haversineKm, loa
 import PetCat from '../components/PetCat';
 import TypingSparks from '../components/TypingSparks';
 import MovieSheet from '../components/MovieSheet';
+import FunHub from '../components/FunHub';
+import { ATTACKS } from '../lib/attacks';
 import { catLook, catMood, moodLabel, petLevel } from '../lib/pet';
 import { decryptText, encryptText, encryptFile, greetMarker, isEncryptedText } from '../lib/crypto';
 import { formatClock, formatDuration, formatLastSeen } from '../utils/format';
@@ -56,7 +58,8 @@ export default function ChatRoom() {
   const [themeId, setThemeId] = useState<string | null>(null);
   const [fx, setFx] = useState<Fx | null>(null);
   const [nudgePulse, setNudgePulse] = useState(false);
-  const [punchKey, setPunchKey] = useState(0); // >0 while a punch impact plays
+  const [hit, setHit] = useState<{ kind: string; key: number } | null>(null); // attack impact playing
+  const [showFun, setShowFun] = useState(false);
   const [actionMsg, setActionMsg] = useState<ChatMessage | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [showThemes, setShowThemes] = useState(false);
@@ -261,10 +264,10 @@ export default function ChatRoom() {
     }
     function onEffect({ conversationId: cid, kind }: any) {
       if (cid !== conversationId) return;
-      if (kind === 'punch') {
-        navigator.vibrate?.([0, 90, 50, 140]); // a hard hit
-        setPunchKey((k) => k + 1);
-        setTimeout(() => setPunchKey(0), 650);
+      if (ATTACKS[kind]) {
+        navigator.vibrate?.(ATTACKS[kind].vibe);
+        setHit({ kind, key: Date.now() });
+        setTimeout(() => setHit(null), 700);
         return;
       }
       fxCounter.current += 1;
@@ -891,11 +894,13 @@ export default function ChatRoom() {
     setNudgePulse(true);
     setTimeout(() => setNudgePulse(false), 1000);
   }
-  function throwPunch() {
-    socket?.emit('effect', { conversationId, kind: 'punch' });
-    navigator.vibrate?.([0, 90, 50, 140]);
-    setPunchKey((k) => k + 1);
-    setTimeout(() => setPunchKey(0), 650);
+  function sendAttack(kind: string) {
+    const a = ATTACKS[kind];
+    if (!a) return;
+    socket?.emit('effect', { conversationId, kind });
+    navigator.vibrate?.(a.vibe);
+    setHit({ kind, key: Date.now() });
+    setTimeout(() => setHit(null), 700);
   }
 
   function chooseTheme(id: string) {
@@ -943,7 +948,7 @@ export default function ChatRoom() {
       style={{
         background: bg,
         fontFamily: theme.font,
-        animation: punchKey ? 'screen-shake 0.55s ease-in-out' : undefined,
+        animation: hit && ATTACKS[hit.kind]?.shake ? 'screen-shake 0.55s ease-in-out' : undefined,
       }}
     >
       {bothHere && <div className="copresence-glow animate-glow-pulse" />}
@@ -1024,15 +1029,6 @@ export default function ChatRoom() {
                   className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
                 >
                   ✏️ Set nickname
-                </button>
-                <button
-                  onClick={() => {
-                    setMenuOpen(false);
-                    setShowMovies(true);
-                  }}
-                  className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
-                >
-                  🎬 Movie night
                 </button>
                 <button
                   onClick={() => {
@@ -1137,10 +1133,10 @@ export default function ChatRoom() {
         </div>
       )}
 
-      {punchKey > 0 && (
-        <div key={punchKey} className="pointer-events-none fixed inset-0 z-[60] flex items-center justify-center">
-          <div className="animate-punch-hit absolute text-[13rem] opacity-70">💥</div>
-          <div className="animate-punch-hit text-[8rem] drop-shadow-2xl">👊</div>
+      {hit && (
+        <div key={hit.key} className="pointer-events-none fixed inset-0 z-[60] flex items-center justify-center">
+          {ATTACKS[hit.kind]?.shake && <div className="animate-punch-hit absolute text-[13rem] opacity-70">💥</div>}
+          <div className="animate-punch-hit text-[8rem] drop-shadow-2xl">{ATTACKS[hit.kind]?.emoji}</div>
         </div>
       )}
 
@@ -1268,11 +1264,11 @@ export default function ChatRoom() {
           </button>
           <button
             type="button"
-            onClick={throwPunch}
-            title="Punch!"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50 text-lg transition active:scale-90 dark:bg-red-500/10"
+            onClick={() => setShowFun(true)}
+            title="Fun & games"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-lg transition active:scale-90 dark:bg-indigo-500/10"
           >
-            👊
+            🎮
           </button>
           <button
             type="button"
@@ -1386,6 +1382,15 @@ export default function ChatRoom() {
 
       {showMovies && (
         <MovieSheet onSuggest={(t) => setText((prev) => (prev ? `${prev} ${t}` : t))} onClose={() => setShowMovies(false)} />
+      )}
+
+      {showFun && (
+        <FunHub
+          onAttack={sendAttack}
+          onPrompt={(t) => setText((prev) => (prev ? `${prev} ${t}` : t))}
+          onMovie={() => setShowMovies(true)}
+          onClose={() => setShowFun(false)}
+        />
       )}
 
       {actionMsg && user && (
