@@ -14,13 +14,18 @@ interface Props {
 export default function LateStatsSheet({ conversationId, myId, otherId, otherName, onClose }: Props) {
   const [stats, setStats] = useState<LateStat[]>([]);
   const [loading, setLoading] = useState(true);
+  const [counts, setCounts] = useState<{ mine: number; theirs: number; total: number } | null>(null);
 
   useEffect(() => {
     api
       .getLateStatsHistory(conversationId)
       .then((data) => setStats(data.stats))
       .finally(() => setLoading(false));
-  }, [conversationId]);
+    api
+      .getMessageCounts(otherId)
+      .then(setCounts)
+      .catch(() => {});
+  }, [conversationId, otherId]);
 
   return (
     <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
@@ -33,6 +38,27 @@ export default function LateStatsSheet({ conversationId, myId, otherId, otherNam
         <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">
           Counts how long each of you takes to reply once a chat is opened with "hi" and closed with "bye", per day.
         </p>
+
+        {counts && (
+          <div className="mb-4 rounded-2xl bg-slate-50 p-3 dark:bg-white/5">
+            <p className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">💬 All-time messages</p>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div>
+                <p className="text-lg font-bold text-brand-600 dark:text-brand-400">{counts.mine}</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">You sent</p>
+              </div>
+              <div>
+                <p className="text-lg font-bold text-pink-600 dark:text-pink-400">{counts.theirs}</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">@{otherName} sent</p>
+              </div>
+              <div>
+                <p className="text-lg font-bold text-slate-800 dark:text-white">{counts.total}</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">Total</p>
+              </div>
+            </div>
+            <p className="mt-2 text-[10px] text-slate-400">Kept even if you delete the chat.</p>
+          </div>
+        )}
 
         {loading ? (
           <p className="py-8 text-center text-sm text-slate-400">Loading…</p>

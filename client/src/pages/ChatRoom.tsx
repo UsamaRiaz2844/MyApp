@@ -14,6 +14,7 @@ import EncryptionModal from '../components/EncryptionModal';
 import { CHAT_THEMES, getTheme } from '../lib/themes';
 import { useConversationCrypto } from '../lib/useConversationCrypto';
 import { activeChat } from '../lib/notify';
+import { isOnlineFresh } from '../lib/presence';
 import { decryptText, encryptText, encryptFile, greetMarker, isEncryptedText } from '../lib/crypto';
 import { formatClock, formatDayLabel, formatDuration, formatLastSeen } from '../utils/format';
 import type { AttachmentType, ChatMessage, LateStat, OtherUser, ReactionMap } from '../types';
@@ -70,8 +71,11 @@ export default function ChatRoom() {
   const messagesRef = useRef<ChatMessage[]>([]);
 
   const bottomRef = useRef<HTMLDivElement>(null);
+  const nearBottomRef = useRef(true);
+  const prevTyping = useRef(false);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fxCounter = useRef(0);
+  const [presenceTick, setPresenceTick] = useState(0); // re-evaluates online freshness
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
@@ -141,8 +145,17 @@ export default function ChatRoom() {
       setOtherTyping(isTyping);
       setOtherTypingText(isTyping ? t || '' : '');
     }
-    function onPresence({ userId, isOnline, lastSeen }: any) {
-      setOtherUser((prev) => (prev && prev.id === userId ? { ...prev, isOnline, lastSeen: lastSeen || prev.lastSeen } : prev));
+    function onPresence({ userId, isOnline, lastSeen, avatarUrl }: any) {
+      setOtherUser((prev) =>
+        prev && prev.id === userId
+          ? {
+              ...prev,
+              isOnline,
+              lastSeen: lastSeen || prev.lastSeen,
+              avatarUrl: avatarUrl !== undefined ? avatarUrl : prev.avatarUrl,
+            }
+          : prev
+      );
     }
     function onLateStats(stat: LateStat) {
       if (stat.conversation === conversationId) setTodayStat(stat);
@@ -228,9 +241,85 @@ export default function ChatRoom() {
     };
   }, [socket, conversationId, user, navigate]);
 
+  // Re-evaluate online freshness periodically (flips to offline when a partner's
+  // heartbeat stops without a clean disconnect).
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length, otherTyping, otherTypingText]);
+    const id = setInterval(() => setPresenceTick((t) => t + 1), 15000);
+    return () => clearInterval(id);
+  }, []);
+
+  function scrollToBottom(smooth = true) {
+    bottomRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'end' });
+  }
+
+  // Scroll to the newest message on open (instant), catching late layout/media.
+  useEffect(() => {
+    if (loading) return;
+    nearBottomRef.current = true;
+    requestAnimationFrame(() => scrollToBottom(false));
+    const t = setTimeout(() => scrollToBottom(false), 250);
+    return () => clearTimeout(t);
+  }, [loading, conversationId]);
+
+  // On a new message: scroll down only if I sent it or I'm already near the
+  // bottom — so reading history (or watching the other person type) isn't yanked.
+  const lastMsg = messages[messages.length - 1];
+  useEffect(() => {
+    if (loading) return;
+    if (lastMsg?.sender === user?.id || nearBottomRef.current) scrollToBottom(true);
+  }, [messages.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep the live typing preview visible only when already at the bottom.
+  useEffect(() => {
+    if (otherTyping && nearBottomRef.current) scrollToBottom(true);
+  }, [otherTyping, otherTypingText]);
+
+  // Safety net for missed realtime inserts (#1): pull any messages we don't have
+  // and merge them in, without disturbing optimistic/local ones.
+  function syncMessages() {
+    api
+      .getMessages(conversationId)
+      .then((d) => {
+        setMessages((prev) => {
+          const have = new Set(prev.map((m) => m.id));
+          const missing = d.messages.filter((m) => !have.has(m.id));
+          if (missing.length === 0) return prev;
+          const merged = [...prev, ...missing];
+          merged.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+          return merged;
+        });
+      })
+      .catch(() => {});
+  }
+
+  // Poll while visible + resync on regaining focus (covers dropped subscriptions).
+  useEffect(() => {
+    const poll = setInterval(() => {
+      if (document.visibilityState === 'visible') syncMessages();
+    }, 12000);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') {
+        syncMessages();
+        api.markSeen(conversationId).catch(() => {});
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(poll);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When the other person stops typing they likely just sent — resync shortly
+  // after in case that insert was missed.
+  useEffect(() => {
+    const was = prevTyping.current;
+    prevTyping.current = otherTyping;
+    if (was && !otherTyping) {
+      const t = setTimeout(syncMessages, 700);
+      return () => clearTimeout(t);
+    }
+  }, [otherTyping]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Abandon any in-progress recording if we leave the room.
   useEffect(() => {
@@ -663,6 +752,10 @@ export default function ChatRoom() {
   }, [messages]);
 
   const myLateMs = todayStat?.lateMs?.[user?.id || ''] || 0;
+  const otherOnline = useMemo(
+    () => isOnlineFresh(otherUser?.isOnline, otherUser?.lastSeen),
+    [otherUser?.isOnline, otherUser?.lastSeen, presenceTick]
+  );
 
   return (
     <div
@@ -670,6 +763,7 @@ export default function ChatRoom() {
       style={{ background: bg, fontFamily: theme.font }}
     >
       {bothHere && <div className="copresence-glow animate-glow-pulse" />}
+      <div className="chat-texture pointer-events-none absolute inset-0 z-0" />
 
       <header className="safe-top sticky top-0 z-30 border-b border-black/5 bg-white/70 backdrop-blur dark:border-white/5 dark:bg-black/30">
         <div className="flex items-center gap-3 px-3 py-2.5">
@@ -682,7 +776,8 @@ export default function ChatRoom() {
           <Avatar
             name={otherUser?.displayName || otherUser?.username || '?'}
             color={otherUser?.avatarColor || '#6366f1'}
-            isOnline={!!otherUser?.isOnline}
+            src={otherUser?.avatarUrl}
+            isOnline={otherOnline}
             showStatus
             size={40}
           />
@@ -694,7 +789,7 @@ export default function ChatRoom() {
               ) : otherTyping ? (
                 <span className="text-brand-500 dark:text-brand-400">typing…</span>
               ) : (
-                formatLastSeen(!!otherUser?.isOnline, otherUser?.lastSeen || null)
+                formatLastSeen(otherOnline, otherUser?.lastSeen || null)
               )}
             </p>
           </div>
@@ -753,7 +848,14 @@ export default function ChatRoom() {
         </div>
       </header>
 
-      <main className="no-scrollbar flex-1 space-y-1 overflow-y-auto px-3 py-4" onClick={() => menuOpen && setMenuOpen(false)}>
+      <main
+        className="no-scrollbar relative z-10 flex-1 space-y-1 overflow-y-auto px-3 py-4"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+        }}
+        onClick={() => menuOpen && setMenuOpen(false)}
+      >
         {loading ? (
           <p className="py-8 text-center text-sm text-slate-400">Loading messages…</p>
         ) : messages.length === 0 ? (
@@ -814,10 +916,8 @@ export default function ChatRoom() {
 
       <EffectsOverlay fx={fx} />
 
-      <form
-        onSubmit={sendMessage}
-        className="safe-bottom border-t border-black/5 bg-white/70 px-3 pb-12 pt-2.5 backdrop-blur dark:border-white/5 dark:bg-black/30"
-      >
+      <form onSubmit={sendMessage} className="safe-bottom relative z-10 px-2 pb-3 pt-2">
+        <div className="rounded-3xl border border-black/10 bg-white/80 p-2 shadow-lg backdrop-blur dark:border-white/10 dark:bg-white/[0.06]">
         {editing && (
           <div className="mb-2 flex items-stretch gap-2 rounded-xl bg-amber-50 pr-1 dark:bg-amber-500/10">
             <div className="min-w-0 flex-1 border-l-2 border-amber-500 py-1.5 pl-2.5 dark:border-amber-400">
@@ -981,7 +1081,7 @@ export default function ChatRoom() {
                   : 'Type a message…'
               }
               rows={1}
-              className="max-h-28 flex-1 resize-none rounded-3xl border border-transparent bg-slate-100 px-5 py-3 text-sm outline-none transition focus:border-brand-500/30 focus:bg-white focus:ring-2 focus:ring-brand-500/30 dark:bg-white/10 dark:text-white dark:focus:bg-white/[0.07]"
+              className="max-h-28 flex-1 resize-none rounded-2xl bg-transparent px-3 py-2.5 text-sm outline-none placeholder:text-slate-400 dark:text-white"
             />
             <button
               type="submit"
@@ -992,6 +1092,7 @@ export default function ChatRoom() {
             </button>
           </div>
         )}
+        </div>
 
         <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={onImageSelected} />
       </form>

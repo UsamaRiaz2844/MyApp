@@ -203,6 +203,41 @@ export const api = {
     return { url: data.publicUrl, path };
   },
 
+  // --- profile picture -----------------------------------------------------
+  // Uploads an avatar to the public `avatars` bucket under <uid>/<uuid>.<ext>
+  // and points the profile at it. Requires the profiles.sql migration.
+  async uploadAvatar(file: Blob, ext: string): Promise<{ url: string }> {
+    const me = await myId();
+    const rand =
+      (globalThis.crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const path = `${me}/${rand}.${ext}`;
+    const { error } = await supabase.storage
+      .from('avatars')
+      .upload(path, file, { contentType: (file as File).type || undefined, upsert: true });
+    if (error) throw new Error(error.message);
+    const { data } = supabase.storage.from('avatars').getPublicUrl(path);
+    const { error: e2 } = await supabase.from('profiles').update({ avatar_url: data.publicUrl }).eq('id', me);
+    if (e2) throw new Error(e2.message);
+    return { url: data.publicUrl };
+  },
+
+  // --- all-time message counts (survive deleting the chat) -----------------
+  async getMessageCounts(otherUserId: string): Promise<{ mine: number; theirs: number; total: number }> {
+    const me = await myId();
+    const [a, b] = orderPair(me, otherUserId);
+    const { data } = await supabase
+      .from('pair_message_counts')
+      .select('count_a, count_b')
+      .eq('user_a', a)
+      .eq('user_b', b)
+      .maybeSingle();
+    const countA = data?.count_a ?? 0;
+    const countB = data?.count_b ?? 0;
+    const mine = me === a ? countA : countB;
+    const theirs = me === a ? countB : countA;
+    return { mine, theirs, total: countA + countB };
+  },
+
   // --- encryption ----------------------------------------------------------
   // Per-conversation E2EE metadata: a public PBKDF2 salt and a verifier token
   // (the shared passphrase never touches the server). Reads degrade gracefully

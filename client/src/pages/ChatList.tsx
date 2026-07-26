@@ -8,6 +8,7 @@ import Avatar from '../components/Avatar';
 import LockSetupModal from '../components/LockSetupModal';
 import { formatDuration, formatLastSeen } from '../utils/format';
 import { isEncryptedText } from '../lib/crypto';
+import { isOnlineFresh } from '../lib/presence';
 import { ensureNotifyPermission, notifyPermission, notifySupported } from '../lib/notify';
 import type { ConversationSummary, OtherUser } from '../types';
 
@@ -20,9 +21,11 @@ function previewText(last: { text: string; sender: string } | null, myId?: strin
 }
 
 export default function ChatList() {
-  const { user, logout } = useAuth();
+  const { user, logout, setAvatar } = useAuth();
   const socket = useSocket();
   const navigate = useNavigate();
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [, setPresenceTick] = useState(0); // ticks to re-evaluate online freshness
 
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,6 +52,27 @@ export default function ChatList() {
       ensureNotifyPermission().then(setNotifPerm);
     }
   }, []);
+
+  // Re-evaluate online freshness so stale "online" flips to offline over time.
+  useEffect(() => {
+    const id = setInterval(() => setPresenceTick((t) => t + 1), 15000);
+    return () => clearInterval(id);
+  }, []);
+
+  async function onAvatarSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) return window.alert('Please choose an image file.');
+    if (file.size > 5 * 1024 * 1024) return window.alert('Image is too large (max 5 MB).');
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+    try {
+      const { url } = await api.uploadAvatar(file, ext);
+      setAvatar(url);
+    } catch (err: any) {
+      window.alert(err?.message || 'Could not update photo. (Has the profiles.sql migration been run?)');
+    }
+  }
 
   useEffect(() => {
     const q = query.trim();
@@ -86,11 +110,19 @@ export default function ChatList() {
       });
     }
 
-    function onPresence({ userId, isOnline, lastSeen }: any) {
+    function onPresence({ userId, isOnline, lastSeen, avatarUrl }: any) {
       setConversations((prev) =>
         prev.map((c) =>
           c.otherUser?.id === userId
-            ? { ...c, otherUser: { ...c.otherUser!, isOnline, lastSeen: lastSeen || c.otherUser!.lastSeen } }
+            ? {
+                ...c,
+                otherUser: {
+                  ...c.otherUser!,
+                  isOnline,
+                  lastSeen: lastSeen || c.otherUser!.lastSeen,
+                  avatarUrl: avatarUrl !== undefined ? avatarUrl : c.otherUser!.avatarUrl,
+                },
+              }
             : c
         )
       );
@@ -166,13 +198,27 @@ export default function ChatList() {
             <ThemeToggle />
             <div className="relative">
               <button onClick={() => setMenuOpen((v) => !v)} className="active:scale-95">
-                <Avatar name={user?.displayName || user?.username || '?'} color={user?.avatarColor || '#6366f1'} size={38} />
+                <Avatar
+                  name={user?.displayName || user?.username || '?'}
+                  color={user?.avatarColor || '#6366f1'}
+                  src={user?.avatarUrl}
+                  size={38}
+                />
               </button>
               {menuOpen && (
                 <div className="absolute right-0 top-12 z-20 w-44 overflow-hidden rounded-xl bg-white py-1 shadow-xl ring-1 ring-black/5 dark:bg-[#17181f] dark:ring-white/10">
                   <div className="border-b border-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 dark:border-white/5 dark:text-slate-200">
                     @{user?.username}
                   </div>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      avatarInputRef.current?.click();
+                    }}
+                    className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
+                  >
+                    🖼 Update photo
+                  </button>
                   {notifySupported() && notifPerm !== 'granted' && (
                     <button
                       onClick={() => {
@@ -231,10 +277,17 @@ export default function ChatList() {
                 onClick={() => openChatWith(u.username)}
                 className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-100 active:scale-[0.99] dark:hover:bg-white/5"
               >
-                <Avatar name={u.displayName || u.username} color={u.avatarColor} isOnline={u.isOnline} showStatus size={44} />
+                <Avatar
+                  name={u.displayName || u.username}
+                  color={u.avatarColor}
+                  src={u.avatarUrl}
+                  isOnline={isOnlineFresh(u.isOnline, u.lastSeen)}
+                  showStatus
+                  size={44}
+                />
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-semibold text-slate-900 dark:text-white">@{u.username}</p>
-                  <p className="truncate text-xs text-slate-400">{formatLastSeen(u.isOnline, u.lastSeen)}</p>
+                  <p className="truncate text-xs text-slate-400">{formatLastSeen(isOnlineFresh(u.isOnline, u.lastSeen), u.lastSeen)}</p>
                 </div>
               </button>
             ))}
@@ -266,7 +319,8 @@ export default function ChatList() {
                     <Avatar
                       name={c.otherUser?.displayName || c.otherUser?.username || '?'}
                       color={c.otherUser?.avatarColor || '#6366f1'}
-                      isOnline={!!c.otherUser?.isOnline}
+                      src={c.otherUser?.avatarUrl}
+                      isOnline={isOnlineFresh(c.otherUser?.isOnline, c.otherUser?.lastSeen)}
                       showStatus
                       size={48}
                     />
@@ -310,6 +364,8 @@ export default function ChatList() {
           </ul>
         )}
       </main>
+
+      <input ref={avatarInputRef} type="file" accept="image/*" hidden onChange={onAvatarSelected} />
 
       {showLock && <LockSetupModal onClose={() => setShowLock(false)} />}
     </div>

@@ -19,14 +19,14 @@ export interface RealtimeClient {
 class SupabaseSocket implements RealtimeClient {
   private handlers = new Map<string, Set<Handler>>();
   private dbChannel: RealtimeChannel | null = null;
-  private presenceChannel: RealtimeChannel | null = null;
   private convChannels = new Map<string, RealtimeChannel>();
 
   constructor(private myId: string, token: string) {
     // Authorize Realtime so RLS applies to postgres_changes.
     supabase.realtime.setAuth(token);
     this.setupDb();
-    this.setupPresence();
+    // Presence (online/last-seen) now rides on profiles Realtime + a heartbeat
+    // written by SocketProvider — see below. No dedicated presence channel.
   }
 
   // ---- event bus ----------------------------------------------------------
@@ -121,30 +121,20 @@ class SupabaseSocket implements RealtimeClient {
         const row: any = p.old;
         if (row && row.id) this.dispatch('conversation:deleted', { id: row.id });
       })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, (p) => {
+        const row: any = p.new;
+        if (!row || !row.id) return;
+        // Presence + avatar updates for anyone (components filter by id).
+        this.dispatch('presence:update', {
+          userId: row.id,
+          isOnline: !!row.is_online,
+          lastSeen: row.last_seen || null,
+          avatarUrl: row.avatar_url || null,
+        });
+      })
       .subscribe();
   }
 
-  // ---- presence (online status) -------------------------------------------
-  private setupPresence() {
-    this.presenceChannel = supabase.channel('online-users', { config: { presence: { key: this.myId } } });
-    this.presenceChannel
-      .on('presence', { event: 'sync' }, () => {
-        const state = this.presenceChannel!.presenceState();
-        Object.keys(state).forEach((userId) => this.dispatch('presence:update', { userId, isOnline: true, lastSeen: null }));
-      })
-      .on('presence', { event: 'join' }, ({ key }) => {
-        this.dispatch('presence:update', { userId: key, isOnline: true, lastSeen: null });
-      })
-      .on('presence', { event: 'leave' }, ({ key }) => {
-        this.dispatch('presence:update', { userId: key, isOnline: false, lastSeen: new Date().toISOString() });
-      })
-      .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          await this.presenceChannel!.track({ user_id: this.myId, online_at: new Date().toISOString() });
-          supabase.from('profiles').update({ is_online: true, last_seen: new Date().toISOString() }).eq('id', this.myId).then();
-        }
-      });
-  }
 
   // ---- per-conversation channel: typing preview, nudge, effects, co-presence
   private joinConversation(conversationId?: string) {
@@ -239,7 +229,6 @@ class SupabaseSocket implements RealtimeClient {
       /* ignore */
     }
     if (this.dbChannel) supabase.removeChannel(this.dbChannel);
-    if (this.presenceChannel) supabase.removeChannel(this.presenceChannel);
     this.convChannels.forEach((ch) => supabase.removeChannel(ch));
     this.convChannels.clear();
     this.handlers.clear();
@@ -271,6 +260,31 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       setSocket(null);
     };
   }, [token, user?.id]);
+
+  // Presence heartbeat: keep last_seen fresh while the app is visible so the
+  // other person sees us as online; mark offline when hidden/closed. Online is
+  // then derived from last_seen recency (see lib/presence), which self-heals if
+  // the app is killed without a clean disconnect.
+  useEffect(() => {
+    if (!user) return;
+    const id = user.id;
+    const online = () =>
+      supabase.from('profiles').update({ is_online: true, last_seen: new Date().toISOString() }).eq('id', id).then();
+    const offline = () =>
+      supabase.from('profiles').update({ is_online: false, last_seen: new Date().toISOString() }).eq('id', id).then();
+
+    if (document.visibilityState === 'visible') online();
+    const beat = setInterval(() => {
+      if (document.visibilityState === 'visible') online();
+    }, 20000);
+    const onVis = () => (document.visibilityState === 'visible' ? online() : offline());
+    document.addEventListener('visibilitychange', onVis);
+
+    return () => {
+      clearInterval(beat);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [user?.id]);
 
   // App-wide, casual message notifications (no content). Fires when a message
   // from the other person arrives and you're not actively looking at that chat.

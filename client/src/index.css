@@ -66,3 +66,20 @@ body {
   z-index: 60;
   overflow: hidden;
 }
+
+/* Subtle chat texture so backgrounds never read as flat black/white.
+   Theme-neutral: a faint dot grid plus a soft vignette. */
+.chat-texture {
+  color: rgba(130, 130, 140, 0.16);
+  background-image:
+    radial-gradient(currentColor 0.6px, transparent 0.7px),
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.05), transparent 60%);
+  background-size: 18px 18px, 100% 100%;
+  background-position: 0 0, 0 0;
+}
+.dark .chat-texture {
+  color: rgba(200, 205, 220, 0.07);
+  background-image:
+    radial-gradient(currentColor 0.6px, transparent 0.7px),
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.04), transparent 55%);
+}
