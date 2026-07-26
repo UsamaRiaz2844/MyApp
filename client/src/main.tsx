@@ -7,6 +7,7 @@ import { AuthProvider } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
 import { LockProvider } from './context/LockContext';
 import ScreenLock from './components/ScreenLock';
+import PrivacyScreen from './components/PrivacyScreen';
 import './index.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
@@ -20,6 +21,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             </HashRouter>
           </SocketProvider>
         </AuthProvider>
+        <PrivacyScreen />
         <ScreenLock />
       </LockProvider>
     </ThemeProvider>

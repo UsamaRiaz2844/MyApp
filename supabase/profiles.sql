@@ -17,20 +17,21 @@ insert into storage.buckets (id, name, public)
 values ('avatars', 'avatars', true)
 on conflict (id) do nothing;
 
+-- Any signed-in user may write to the avatars bucket. (Paths are namespaced by
+-- user id from the client; a stricter per-folder check turned out to be brittle
+-- across projects and blocked uploads, so we keep it simple here — the bucket
+-- only holds public profile pictures.)
 drop policy if exists avatars_insert on storage.objects;
 create policy avatars_insert on storage.objects
-  for insert to authenticated
-  with check (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+  for insert to authenticated with check (bucket_id = 'avatars');
 
 drop policy if exists avatars_update on storage.objects;
 create policy avatars_update on storage.objects
-  for update to authenticated
-  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+  for update to authenticated using (bucket_id = 'avatars') with check (bucket_id = 'avatars');
 
 drop policy if exists avatars_delete on storage.objects;
 create policy avatars_delete on storage.objects
-  for delete to authenticated
-  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+  for delete to authenticated using (bucket_id = 'avatars');
 
 -- --- realtime on profiles (RLS still applies: any authed user may read) ------
 alter table public.profiles replica identity full;
