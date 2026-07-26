@@ -73,6 +73,10 @@ export default function ChatRoom() {
   const [editing, setEditing] = useState<ChatMessage | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
 
+  // --- stop / freeze --------------------------------------------------------
+  const [stoppedBy, setStoppedBy] = useState<string | null>(null);
+  const frozen = !!stoppedBy && stoppedBy !== user?.id; // the other person stopped me
+
   const [hasMore, setHasMore] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -116,6 +120,7 @@ export default function ChatRoom() {
     api.getLateStats(conversationId).then((d) => setTodayStat(d.stat)).catch(() => {});
     api.getReactions(conversationId).then((d) => setReactions(d.reactions)).catch(() => {});
     api.getTheme(conversationId).then((d) => setThemeId(d.theme)).catch(() => {});
+    api.getStopped(conversationId).then((d) => setStoppedBy(d.stoppedBy)).catch(() => {});
   }, [conversationId]);
 
   useEffect(() => {
@@ -219,8 +224,10 @@ export default function ChatRoom() {
         });
       }
     }
-    function onConvUpdated({ id, theme: t }: any) {
-      if (id === conversationId) setThemeId(t ?? null);
+    function onConvUpdated({ id, theme: t, stoppedBy: sb }: any) {
+      if (id !== conversationId) return;
+      setThemeId(t ?? null);
+      setStoppedBy(sb ?? null);
     }
     function onConvDeleted({ id }: any) {
       if (id === conversationId) navigate('/');
@@ -540,12 +547,15 @@ export default function ChatRoom() {
     }
     const trimmed = text.trim();
     if (!trimmed || !socket) return;
+    if (frozen) return; // the other person stopped this chat
     // Encryption enabled on this conversation but locked on this device — must
     // unlock before sending (otherwise we'd leak plaintext into an E2EE chat).
     if (encStatus === 'locked') {
       setShowEncModal(true);
       return;
     }
+    const isStop = trimmed.toLowerCase() === 'stop';
+    const wasStopper = stoppedBy === user?.id;
     const wasWhisper = whisper;
     const replyToId = replyTo?.id ?? null;
     const encrypt = encStatus === 'ready' && !!cryptoKey;
@@ -593,6 +603,13 @@ export default function ChatRoom() {
             if (already) return prev.filter((m) => m.id !== tempId);
             return prev.map((m) => (m.id === tempId ? res.message : m));
           });
+          // "stop" freezes the chat for the other person; if I was the one who
+          // stopped it, sending anything resumes it (the DB trigger clears it).
+          if (isStop) {
+            api.setStopped(conversationId, user!.id).then(() => setStoppedBy(user!.id)).catch(() => {});
+          } else if (wasStopper) {
+            setStoppedBy(null);
+          }
         } else {
           setMessages((prev) => prev.filter((m) => m.id !== tempId));
         }
@@ -603,10 +620,12 @@ export default function ChatRoom() {
   // --- attachments (image + voice) -----------------------------------------
   async function sendAttachment(blob: Blob, type: AttachmentType, ext: string, durationMs?: number) {
     if (!socket || !user) return;
+    if (frozen) return; // the other person stopped this chat
     if (encStatus === 'locked') {
       setShowEncModal(true);
       return;
     }
+    const wasStopper = stoppedBy === user.id;
     const encrypt = encStatus === 'ready' && !!cryptoKey;
     const wasWhisper = whisper;
     const replyToId = replyTo?.id ?? null;
@@ -659,6 +678,7 @@ export default function ChatRoom() {
               if (already) return prev.filter((m) => m.id !== tempId);
               return prev.map((m) => (m.id === tempId ? res.message : m));
             });
+            if (wasStopper) setStoppedBy(null); // sending resumed the chat
           } else {
             setMessages((prev) => prev.filter((m) => m.id !== tempId));
             window.alert(res?.error || 'Failed to send attachment.');
@@ -958,6 +978,16 @@ export default function ChatRoom() {
 
       <form onSubmit={sendMessage} className="safe-bottom relative z-10 px-2 pb-3 pt-2">
         <div className="rounded-3xl border border-black/10 bg-white/80 p-2 shadow-lg backdrop-blur dark:border-white/10 dark:bg-white/[0.06]">
+        {frozen && (
+          <div className="mb-2 flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 text-[12px] font-medium text-red-600 dark:bg-red-500/10 dark:text-red-400">
+            🛑 @{otherUser?.username} stopped the chat. You can send once they message again.
+          </div>
+        )}
+        {stoppedBy === user?.id && (
+          <div className="mb-2 flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-[12px] font-medium text-amber-600 dark:bg-amber-500/10 dark:text-amber-400">
+            🛑 You stopped the chat — send anything to resume it.
+          </div>
+        )}
         {editing && (
           <div className="mb-2 flex items-stretch gap-2 rounded-xl bg-amber-50 pr-1 dark:bg-amber-500/10">
             <div className="min-w-0 flex-1 border-l-2 border-amber-500 py-1.5 pl-2.5 dark:border-amber-400">
@@ -1020,15 +1050,16 @@ export default function ChatRoom() {
           <button
             type="button"
             onClick={() => setShowEmoji(true)}
+            disabled={frozen}
             title="Emoji"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-yellow-50 text-lg transition active:scale-90 dark:bg-yellow-500/10"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-yellow-50 text-lg transition active:scale-90 disabled:opacity-40 dark:bg-yellow-500/10"
           >
             😊
           </button>
           <button
             type="button"
             onClick={pickImage}
-            disabled={uploading || recording}
+            disabled={uploading || recording || frozen}
             title="Send photo"
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sky-50 text-lg transition active:scale-90 disabled:opacity-40 dark:bg-sky-500/10"
           >
@@ -1037,7 +1068,7 @@ export default function ChatRoom() {
           <button
             type="button"
             onClick={startRecording}
-            disabled={uploading || recording}
+            disabled={uploading || recording || frozen}
             title="Record voice note"
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-50 text-lg transition active:scale-90 disabled:opacity-40 dark:bg-violet-500/10"
           >
@@ -1119,8 +1150,11 @@ export default function ChatRoom() {
                   sendMessage(e as any);
                 }
               }}
+              disabled={frozen}
               placeholder={
-                editing
+                frozen
+                  ? 'Chat stopped…'
+                  : editing
                   ? 'Edit your message…'
                   : whisper
                   ? 'Whisper something…'
@@ -1129,11 +1163,11 @@ export default function ChatRoom() {
                   : 'Type a message…'
               }
               rows={1}
-              className="max-h-28 flex-1 resize-none rounded-2xl bg-transparent px-3 py-2.5 text-sm outline-none placeholder:text-slate-400 dark:text-white"
+              className="max-h-28 flex-1 resize-none rounded-2xl bg-transparent px-3 py-2.5 text-sm outline-none placeholder:text-slate-400 disabled:opacity-50 dark:text-white"
             />
             <button
               type="submit"
-              disabled={!text.trim()}
+              disabled={!text.trim() || frozen}
               className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full shadow-lg transition active:scale-90 disabled:opacity-40 ${theme.accent}`}
             >
               {editing ? '✓' : '➤'}
