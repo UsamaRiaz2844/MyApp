@@ -12,6 +12,7 @@ import MessageList from '../components/MessageList';
 import MessageActions from '../components/MessageActions';
 import EffectsOverlay, { Fx } from '../components/EffectsOverlay';
 import EncryptionModal from '../components/EncryptionModal';
+import EmojiPicker from '../components/EmojiPicker';
 import { CHAT_THEMES, getTheme } from '../lib/themes';
 import { useConversationCrypto } from '../lib/useConversationCrypto';
 import { activeChat } from '../lib/notify';
@@ -54,6 +55,7 @@ export default function ChatRoom() {
   const [uploading, setUploading] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordMs, setRecordMs] = useState(0);
+  const [showEmoji, setShowEmoji] = useState(false);
 
   // --- encryption -----------------------------------------------------------
   const crypto = useConversationCrypto(conversationId);
@@ -806,7 +808,7 @@ export default function ChatRoom() {
 
   return (
     <div
-      className="chat-surface relative flex h-[100dvh] flex-col"
+      className="chat-surface animate-page-in relative flex h-[100dvh] flex-col"
       style={{ background: bg, fontFamily: theme.font }}
     >
       {bothHere && <div className="copresence-glow animate-glow-pulse" />}
@@ -1017,6 +1019,14 @@ export default function ChatRoom() {
         <div className="no-scrollbar mb-2 flex items-center gap-1.5 overflow-x-auto">
           <button
             type="button"
+            onClick={() => setShowEmoji(true)}
+            title="Emoji"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-yellow-50 text-lg transition active:scale-90 dark:bg-yellow-500/10"
+          >
+            😊
+          </button>
+          <button
+            type="button"
             onClick={pickImage}
             disabled={uploading || recording}
             title="Send photo"
@@ -1143,6 +1153,10 @@ export default function ChatRoom() {
           onSubmit={encStatus === 'off' ? crypto.enable : crypto.unlock}
           onClose={() => setShowEncModal(false)}
         />
+      )}
+
+      {showEmoji && (
+        <EmojiPicker onPick={(e) => setText((t) => t + e)} onClose={() => setShowEmoji(false)} />
       )}
 
       {actionMsg && user && (
