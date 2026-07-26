@@ -281,6 +281,12 @@ export const api = {
       .eq('id', me);
   },
 
+  // --- mood ----------------------------------------------------------------
+  async updateMood(mood: string | null): Promise<void> {
+    const me = await myId();
+    await supabase.from('profiles').update({ mood }).eq('id', me);
+  },
+
   // --- stop / freeze chat --------------------------------------------------
   async getStopped(conversationId: string): Promise<{ stoppedBy: string | null }> {
     try {

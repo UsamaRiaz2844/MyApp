@@ -14,6 +14,7 @@ export function mapProfile(row: any): OtherUser {
     weatherTemp: row.weather_temp ?? null,
     weatherCity: row.weather_city ?? null,
     weatherCode: row.weather_code ?? null,
+    mood: row.mood ?? null,
   };
 }
 

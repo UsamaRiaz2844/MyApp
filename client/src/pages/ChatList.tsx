@@ -11,6 +11,9 @@ import { isEncryptedText } from '../lib/crypto';
 import { isOnlineFresh } from '../lib/presence';
 import { ensureNotifyPermission, notifyPermission, notifySupported } from '../lib/notify';
 import { fetchMyWeather, saveMyWeather, weatherStale } from '../lib/weather';
+import { getNickname } from '../lib/nickname';
+import { loadMyMood, saveMyMood } from '../lib/mood';
+import MoodPicker from '../components/MoodPicker';
 import type { ConversationSummary, OtherUser } from '../types';
 
 // Preview text for the chat list — encrypted last messages show a lock instead
@@ -35,6 +38,8 @@ export default function ChatList() {
   const [searching, setSearching] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [showLock, setShowLock] = useState(false);
+  const [showMood, setShowMood] = useState(false);
+  const [myMood, setMyMood] = useState<string | null>(() => loadMyMood());
   const [notifPerm, setNotifPerm] = useState<NotificationPermission>(notifyPermission());
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressed = useRef(false);
@@ -221,7 +226,17 @@ export default function ChatList() {
                 <div className="absolute right-0 top-12 z-20 w-44 overflow-hidden rounded-xl bg-white py-1 shadow-xl ring-1 ring-black/5 dark:bg-[#17181f] dark:ring-white/10">
                   <div className="border-b border-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 dark:border-white/5 dark:text-slate-200">
                     @{user?.username}
+                    {myMood && <div className="mt-0.5 text-xs font-normal text-slate-400">{myMood}</div>}
                   </div>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setShowMood(true);
+                    }}
+                    className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
+                  >
+                    😊 Set mood
+                  </button>
                   <button
                     onClick={() => {
                       setMenuOpen(false);
@@ -339,7 +354,7 @@ export default function ChatList() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
                         <p className="truncate font-semibold text-slate-900 dark:text-white">
-                          @{c.otherUser?.username}
+                          {getNickname(c.otherUser?.id) || `@${c.otherUser?.username}`}
                         </p>
                         {c.lastMessage && (
                           <span className="shrink-0 text-[11px] text-slate-400">
@@ -380,6 +395,18 @@ export default function ChatList() {
       <input ref={avatarInputRef} type="file" accept="image/*" hidden onChange={onAvatarSelected} />
 
       {showLock && <LockSetupModal onClose={() => setShowLock(false)} />}
+      {showMood && (
+        <MoodPicker
+          current={myMood}
+          onPick={(m) => {
+            setMyMood(m);
+            saveMyMood(m);
+            api.updateMood(m).catch(() => {});
+            setShowMood(false);
+          }}
+          onClose={() => setShowMood(false)}
+        />
+      )}
     </div>
   );
 }
