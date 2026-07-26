@@ -46,6 +46,7 @@ export interface ChatMessage {
   attachmentDurationMs?: number | null;
   isEncrypted?: boolean;
   replyTo?: string | null; // id of the message this one replies to
+  editedAt?: string | null; // set when the message text was edited
 }
 
 // messageId -> (userId -> emoji)

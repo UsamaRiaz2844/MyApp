@@ -209,6 +209,7 @@ export default function MessageBubble({
               hasImage ? 'px-2.5 pb-1 pt-1' : 'mt-1'
             } ${mine ? 'text-white/80' : 'text-slate-400'}`}
           >
+            {m.editedAt && <span className="italic opacity-80">edited</span>}
             <span>{formatMessageTime(m.createdAt)}</span>
             {mine && <SeenTicks seen={!!m.seenAt} />}
           </div>

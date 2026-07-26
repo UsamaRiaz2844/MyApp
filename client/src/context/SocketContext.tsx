@@ -90,6 +90,10 @@ class SupabaseSocket implements RealtimeClient {
         if (row.seen_at && row.sender === this.myId) {
           this.dispatch('message:seen', { conversationId: row.conversation_id, seenBy: row.receiver, seenAt: row.seen_at });
         }
+        // Any edit / field change to a message I'm part of (e.g. edited text).
+        if (row.sender === this.myId || row.receiver === this.myId) {
+          this.dispatch('message:updated', mapMessage(row));
+        }
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, (p) => {
         const row: any = p.old;

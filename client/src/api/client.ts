@@ -227,6 +227,17 @@ export const api = {
     if (error) throw new Error(error.message);
   },
 
+  // --- edit ----------------------------------------------------------------
+  // Update a message's text in place and stamp edited_at. Requires the edit.sql
+  // migration (edited_at column + sender-update policy).
+  async editMessage(messageId: string, text: string, isEncrypted: boolean): Promise<void> {
+    const { error } = await supabase
+      .from('messages')
+      .update({ text, is_encrypted: isEncrypted, edited_at: new Date().toISOString() })
+      .eq('id', messageId);
+    if (error) throw new Error(error.message);
+  },
+
   // --- deletes -------------------------------------------------------------
   async deleteMessage(messageId: string): Promise<void> {
     const { error } = await supabase.from('messages').delete().eq('id', messageId);
