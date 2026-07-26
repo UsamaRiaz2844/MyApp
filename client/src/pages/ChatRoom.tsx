@@ -14,6 +14,7 @@ import EffectsOverlay, { Fx } from '../components/EffectsOverlay';
 import EncryptionModal from '../components/EncryptionModal';
 import EmojiPicker from '../components/EmojiPicker';
 import { CHAT_THEMES, getTheme } from '../lib/themes';
+import PlaceScene, { hasScene } from '../components/PlaceScene';
 import { useConversationCrypto } from '../lib/useConversationCrypto';
 import { activeChat } from '../lib/notify';
 import { isOnlineFresh } from '../lib/presence';
@@ -1002,7 +1003,11 @@ export default function ChatRoom() {
       }}
     >
       {bothHere && <div className="copresence-glow animate-glow-pulse" />}
-      <div className="chat-texture pointer-events-none absolute inset-0 z-0" />
+      {hasScene(theme.scene) ? (
+        <PlaceScene scene={theme.scene!} dark={colorMode === 'dark'} />
+      ) : (
+        <div className="chat-texture pointer-events-none absolute inset-0 z-0" />
+      )}
       <PetCat mood={catMoodState} level={petLvl} />
 
       <header className="safe-top sticky top-0 z-30 border-b border-black/5 bg-white/70 backdrop-blur dark:border-white/5 dark:bg-black/30">
@@ -1522,29 +1527,50 @@ export default function ChatRoom() {
         <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowThemes(false)}>
           <div
             onClick={(e) => e.stopPropagation()}
-            className="safe-bottom w-full max-w-md animate-pop-in rounded-t-3xl bg-white p-5 shadow-2xl dark:bg-[#15161d]"
+            className="safe-bottom flex max-h-[85vh] w-full max-w-md flex-col rounded-t-3xl bg-white p-5 shadow-2xl animate-sheet-up dark:bg-[#15161d]"
           >
             <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-slate-300 dark:bg-white/20" />
             <h2 className="mb-3 text-lg font-bold text-slate-900 dark:text-white">🎨 Chat theme</h2>
-            <div className="grid grid-cols-3 gap-3">
-              {CHAT_THEMES.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => chooseTheme(t.id)}
-                  className={`flex flex-col items-center gap-2 rounded-2xl p-3 ring-1 transition active:scale-95 ${
-                    themeId === t.id || (!themeId && t.id === 'default')
-                      ? 'ring-brand-500'
-                      : 'ring-slate-200 dark:ring-white/10'
-                  }`}
-                >
-                  <span className="h-10 w-10 rounded-full shadow-inner" style={{ background: t.swatch }} />
-                  <span className="text-xs font-medium text-slate-600 dark:text-slate-300">{t.label}</span>
-                </button>
-              ))}
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {([
+                ['place', '🏠 Rooms & places'],
+                ['core', 'Classic'],
+                ['app', 'App looks'],
+                ['era', 'Eras'],
+              ] as const).map(([cat, title]) => {
+                const items = CHAT_THEMES.filter((t) => (t.category || 'core') === cat);
+                if (!items.length) return null;
+                return (
+                  <div key={cat} className="mb-4">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">{title}</p>
+                    <div className="grid grid-cols-3 gap-3">
+                      {items.map((t) => (
+                        <button
+                          key={t.id}
+                          onClick={() => chooseTheme(t.id)}
+                          className={`flex flex-col items-center gap-2 rounded-2xl p-3 ring-1 transition active:scale-95 ${
+                            themeId === t.id || (!themeId && t.id === 'glass')
+                              ? 'ring-2 ring-brand-500'
+                              : 'ring-slate-200 dark:ring-white/10'
+                          }`}
+                        >
+                          <span
+                            className="flex h-12 w-12 items-center justify-center rounded-2xl text-xl shadow-inner"
+                            style={{ background: t.swatch }}
+                          >
+                            {t.icon && <span className="drop-shadow">{t.icon}</span>}
+                          </span>
+                          <span className="text-xs font-medium text-slate-600 dark:text-slate-300">{t.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
             <button
               onClick={() => setShowThemes(false)}
-              className="mt-5 w-full rounded-xl bg-slate-100 py-2.5 text-sm font-semibold text-slate-700 dark:bg-white/10 dark:text-slate-200"
+              className="mt-3 w-full shrink-0 rounded-xl bg-slate-100 py-2.5 text-sm font-semibold text-slate-700 dark:bg-white/10 dark:text-slate-200"
             >
               Close
             </button>
