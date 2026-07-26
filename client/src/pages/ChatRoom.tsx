@@ -25,7 +25,9 @@ import TypingSparks from '../components/TypingSparks';
 import MovieSheet from '../components/MovieSheet';
 import FunHub from '../components/FunHub';
 import GamePanel from '../components/GamePanel';
+import StatsSheet from '../components/StatsSheet';
 import { ATTACKS } from '../lib/attacks';
+import { playSound } from '../lib/soundboard';
 import type { GameType } from '../lib/games';
 import { catLook, catMood, moodLabel, petLevel } from '../lib/pet';
 import { decryptText, encryptText, encryptFile, greetMarker, isEncryptedText } from '../lib/crypto';
@@ -63,6 +65,7 @@ export default function ChatRoom() {
   const [hit, setHit] = useState<{ kind: string; key: number } | null>(null); // attack impact playing
   const [showFun, setShowFun] = useState(false);
   const [gameType, setGameType] = useState<GameType | null>(null);
+  const [showStats, setShowStats] = useState(false);
   const [actionMsg, setActionMsg] = useState<ChatMessage | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [showThemes, setShowThemes] = useState(false);
@@ -267,6 +270,10 @@ export default function ChatRoom() {
     }
     function onEffect({ conversationId: cid, kind }: any) {
       if (cid !== conversationId) return;
+      if (typeof kind === 'string' && kind.startsWith('sound:')) {
+        playSound(kind.slice(6));
+        return;
+      }
       if (ATTACKS[kind]) {
         navigator.vibrate?.(ATTACKS[kind].vibe);
         setHit({ kind, key: Date.now() });
@@ -905,6 +912,10 @@ export default function ChatRoom() {
     setHit({ kind, key: Date.now() });
     setTimeout(() => setHit(null), 700);
   }
+  function sendSound(id: string) {
+    playSound(id);
+    socket?.emit('effect', { conversationId, kind: `sound:${id}` });
+  }
 
   function chooseTheme(id: string) {
     setThemeId(id);
@@ -1390,10 +1401,22 @@ export default function ChatRoom() {
       {showFun && (
         <FunHub
           onAttack={sendAttack}
+          onSound={sendSound}
           onPrompt={(t) => setText((prev) => (prev ? `${prev} ${t}` : t))}
           onMovie={() => setShowMovies(true)}
           onGame={(t) => setGameType(t)}
+          onStats={() => setShowStats(true)}
           onClose={() => setShowFun(false)}
+        />
+      )}
+
+      {showStats && user && otherUser && (
+        <StatsSheet
+          conversationId={conversationId}
+          me={user.id}
+          other={otherUser.id}
+          otherName={otherLabel}
+          onClose={() => setShowStats(false)}
         />
       )}
 

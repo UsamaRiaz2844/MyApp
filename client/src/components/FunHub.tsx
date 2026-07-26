@@ -2,18 +2,21 @@ import { useState } from 'react';
 import { ATTACK_LIST } from '../lib/attacks';
 import { PACKS, randomLine, type Pack } from '../lib/funpacks';
 import { GAME_META, type GameType } from '../lib/games';
+import { SOUNDS } from '../lib/soundboard';
 
 interface Props {
   onAttack: (kind: string) => void;
+  onSound: (id: string) => void;
   onPrompt: (text: string) => void;
   onMovie: () => void;
   onGame: (type: GameType) => void;
+  onStats: () => void;
   onClose: () => void;
 }
 
 // The Fun hub — one place for attacks, conversation prompts, and movie night.
 // More sections (games, polls, lists) get added here over time.
-export default function FunHub({ onAttack, onPrompt, onMovie, onGame, onClose }: Props) {
+export default function FunHub({ onAttack, onSound, onPrompt, onMovie, onGame, onStats, onClose }: Props) {
   const [pack, setPack] = useState<Pack | null>(null);
   const [line, setLine] = useState('');
 
@@ -77,6 +80,20 @@ export default function FunHub({ onAttack, onPrompt, onMovie, onGame, onClose }:
               ))}
             </div>
 
+            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Soundboard</p>
+            <div className="mb-4 grid grid-cols-4 gap-2">
+              {SOUNDS.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => onSound(s.id)}
+                  className="flex flex-col items-center gap-1 rounded-2xl bg-slate-50 py-3 text-2xl transition active:scale-90 dark:bg-white/[0.05]"
+                >
+                  {s.emoji}
+                  <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">{s.label}</span>
+                </button>
+              ))}
+            </div>
+
             <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Play together</p>
             <div className="mb-4 grid grid-cols-2 gap-2">
               {(Object.keys(GAME_META) as GameType[]).map((t) => (
@@ -111,9 +128,18 @@ export default function FunHub({ onAttack, onPrompt, onMovie, onGame, onClose }:
                   onClose();
                   onMovie();
                 }}
-                className="col-span-2 flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-700 transition active:scale-95 dark:bg-white/[0.05] dark:text-slate-200"
+                className="flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-700 transition active:scale-95 dark:bg-white/[0.05] dark:text-slate-200"
               >
                 <span className="text-lg">🎬</span> Movie night
+              </button>
+              <button
+                onClick={() => {
+                  onClose();
+                  onStats();
+                }}
+                className="flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-700 transition active:scale-95 dark:bg-white/[0.05] dark:text-slate-200"
+              >
+                <span className="text-lg">📊</span> Our stats
               </button>
             </div>
           </>
