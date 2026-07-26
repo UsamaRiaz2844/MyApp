@@ -186,6 +186,8 @@ class SupabaseSocket implements RealtimeClient {
       attachmentUrl?: string;
       attachmentType?: 'image' | 'audio';
       attachmentDurationMs?: number;
+      isEncrypted?: boolean;
+      encMarker?: 'greet' | 'bye' | null;
     },
     ack?: (res: any) => void
   ) {
@@ -194,13 +196,18 @@ class SupabaseSocket implements RealtimeClient {
     // A message needs either text or an attachment.
     if ((!text && !hasAttachment) || !payload?.conversationId) return ack?.({ error: 'Invalid message' });
     // Only send the optional columns when set, so normal messaging still works
-    // even if the features.sql / media.sql migrations haven't been run yet.
+    // even if the features.sql / media.sql / encryption.sql migrations haven't
+    // been run yet.
     const row: any = { conversation_id: payload.conversationId, text };
     if (payload.isWhisper) row.is_whisper = true;
     if (hasAttachment) {
       row.attachment_url = payload.attachmentUrl;
       row.attachment_type = payload.attachmentType;
       if (payload.attachmentDurationMs != null) row.attachment_duration_ms = payload.attachmentDurationMs;
+    }
+    if (payload.isEncrypted) {
+      row.is_encrypted = true;
+      if (payload.encMarker) row.enc_marker = payload.encMarker;
     }
     const { data, error } = await supabase.from('messages').insert(row).select().single();
     if (error || !data) return ack?.({ error: error?.message || 'Failed to send message' });

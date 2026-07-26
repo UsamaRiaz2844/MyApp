@@ -7,7 +7,16 @@ import ThemeToggle from '../components/ThemeToggle';
 import Avatar from '../components/Avatar';
 import LockSetupModal from '../components/LockSetupModal';
 import { formatDuration, formatLastSeen } from '../utils/format';
+import { isEncryptedText } from '../lib/crypto';
 import type { ConversationSummary, OtherUser } from '../types';
+
+// Preview text for the chat list — encrypted last messages show a lock instead
+// of ciphertext (decryption happens only inside the open conversation).
+function previewText(last: { text: string; sender: string } | null, myId?: string): string {
+  if (!last) return 'Say hi 👋';
+  const body = isEncryptedText(last.text) ? '🔒 Encrypted message' : last.text;
+  return last.sender === myId ? `You: ${body}` : body;
+}
 
 export default function ChatList() {
   const { user, logout } = useAuth();
@@ -256,7 +265,7 @@ export default function ChatList() {
                       </div>
                       <div className="flex items-center justify-between gap-2">
                         <p className="truncate text-sm text-slate-500 dark:text-slate-400">
-                          {c.lastMessage ? (c.lastMessage.sender === user?.id ? `You: ${c.lastMessage.text}` : c.lastMessage.text) : 'Say hi 👋'}
+                          {previewText(c.lastMessage, user?.id)}
                         </p>
                         {c.unreadCount > 0 && (
                           <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-pink-500 px-1.5 text-[11px] font-bold text-white">
