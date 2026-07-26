@@ -14,6 +14,9 @@ export interface OtherUser {
   avatarUrl?: string | null;
   isOnline: boolean;
   lastSeen: string | null;
+  weatherTemp?: number | null;
+  weatherCity?: string | null;
+  weatherCode?: number | null;
 }
 
 export interface LateStat {
