@@ -197,7 +197,7 @@ export default function ChatList() {
         </div>
       </header>
 
-      <main className="no-scrollbar flex-1 overflow-y-auto pb-4">
+      <main className="no-scrollbar safe-bottom flex-1 overflow-y-auto pb-8">
         {showingSearch ? (
           <div className="px-2 pt-2">
             {searching && <p className="px-2 py-3 text-sm text-slate-400">Searching…</p>}
