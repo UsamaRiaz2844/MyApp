@@ -15,6 +15,8 @@ export function mapProfile(row: any): OtherUser {
     weatherCity: row.weather_city ?? null,
     weatherCode: row.weather_code ?? null,
     mood: row.mood ?? null,
+    lat: row.lat ?? null,
+    lon: row.lon ?? null,
   };
 }
 

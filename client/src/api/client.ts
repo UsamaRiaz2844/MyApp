@@ -281,6 +281,12 @@ export const api = {
       .eq('id', me);
   },
 
+  // --- location ------------------------------------------------------------
+  async updateLocation(lat: number, lon: number): Promise<void> {
+    const me = await myId();
+    await supabase.from('profiles').update({ lat, lon }).eq('id', me);
+  },
+
   // --- mood ----------------------------------------------------------------
   async updateMood(mood: string | null): Promise<void> {
     const me = await myId();

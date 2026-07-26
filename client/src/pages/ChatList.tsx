@@ -13,6 +13,7 @@ import { ensureNotifyPermission, notifyPermission, notifySupported } from '../li
 import { fetchMyWeather, saveMyWeather, weatherStale } from '../lib/weather';
 import { getNickname } from '../lib/nickname';
 import { loadMyMood, saveMyMood } from '../lib/mood';
+import { geoPermission, getCoords, saveMyCoords } from '../lib/geo';
 import MoodPicker from '../components/MoodPicker';
 import type { ConversationSummary, OtherUser } from '../types';
 
@@ -65,14 +66,25 @@ export default function ChatList() {
     return () => clearInterval(id);
   }, []);
 
-  // Refresh my weather (browser location → Open-Meteo) and share it, at most
-  // every ~20 min. Fails silently if location is denied/unavailable.
+  // Share my location (for the distance feature) and refresh my weather. Only
+  // when already granted — the send flow prompts if it isn't. Weather is throttled
+  // to ~20 min; both fail silently if location is unavailable.
   useEffect(() => {
-    if (!weatherStale(20)) return;
-    fetchMyWeather().then((w) => {
-      if (!w) return;
-      saveMyWeather(w);
-      api.updateWeather(w.temp, w.city, w.code).catch(() => {});
+    geoPermission().then((state) => {
+      if (state !== 'granted') return;
+      getCoords()
+        .then((c) => {
+          saveMyCoords(c);
+          api.updateLocation(c.lat, c.lon).catch(() => {});
+        })
+        .catch(() => {});
+      if (weatherStale(20)) {
+        fetchMyWeather().then((w) => {
+          if (!w) return;
+          saveMyWeather(w);
+          api.updateWeather(w.temp, w.city, w.code).catch(() => {});
+        });
+      }
     });
   }, []);
 
@@ -266,6 +278,17 @@ export default function ChatList() {
                   >
                     🔒 App lock
                   </button>
+                  {user?.username === 'usama' && (
+                    <button
+                      onClick={() => {
+                        setMenuOpen(false);
+                        navigate('/admin');
+                      }}
+                      className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
+                    >
+                      🛡 Admin
+                    </button>
+                  )}
                   <button
                     onClick={logout}
                     className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
