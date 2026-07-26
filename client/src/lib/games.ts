@@ -1,10 +1,11 @@
 // Game rules for the in-chat mini-games. State is stored in the `games` table
 // and synced over Realtime; these helpers are pure logic.
 
-export type GameType = 'ttt' | 'rps';
+export type GameType = 'ttt' | 'rps' | 'c4';
 
 export const GAME_META: Record<GameType, { label: string; icon: string }> = {
   ttt: { label: 'Tic-Tac-Toe', icon: '⭕' },
+  c4: { label: 'Connect 4', icon: '🔴' },
   rps: { label: 'Rock Paper Scissors', icon: '✊' },
 };
 
@@ -34,6 +35,43 @@ export function tttLine(board: (string | null)[]): number[] | null {
     const [a, b, c] = line;
     if (board[a] && board[a] === board[b] && board[a] === board[c]) return line;
   }
+  return null;
+}
+
+// ---- Connect 4 ------------------------------------------------------------
+export const C4_ROWS = 6;
+export const C4_COLS = 7;
+export interface C4State {
+  board: (string | null)[]; // 42 cells, row-major, index = row*7 + col (row 0 = top)
+}
+// lowest empty cell index in a column, or -1 if the column is full
+export function c4Drop(board: (string | null)[], col: number): number {
+  for (let r = C4_ROWS - 1; r >= 0; r--) {
+    const i = r * C4_COLS + col;
+    if (!board[i]) return i;
+  }
+  return -1;
+}
+export function c4Winner(board: (string | null)[]): string | 'draw' | null {
+  const at = (r: number, c: number) => (r >= 0 && r < C4_ROWS && c >= 0 && c < C4_COLS ? board[r * C4_COLS + c] : null);
+  const dirs = [
+    [0, 1],
+    [1, 0],
+    [1, 1],
+    [1, -1],
+  ];
+  for (let r = 0; r < C4_ROWS; r++) {
+    for (let c = 0; c < C4_COLS; c++) {
+      const v = at(r, c);
+      if (!v) continue;
+      for (const [dr, dc] of dirs) {
+        if (at(r + dr, c + dc) === v && at(r + 2 * dr, c + 2 * dc) === v && at(r + 3 * dr, c + 3 * dc) === v) {
+          return v as string;
+        }
+      }
+    }
+  }
+  if (board.every(Boolean)) return 'draw';
   return null;
 }
 

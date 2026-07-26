@@ -2,8 +2,12 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { supabase } from '../lib/supabase';
 import {
+  C4_COLS,
+  C4_ROWS,
   GAME_META,
   RPS_EMOJI,
+  c4Drop,
+  c4Winner,
   rpsResolve,
   tttLine,
   tttWinner,
@@ -33,8 +37,13 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
       try {
         let g = await api.getActiveGame(conversationId, type);
         if (!g) {
-          const state = type === 'ttt' ? { board: Array(9).fill(null) } : { choices: {}, round: 1 };
-          const turn = type === 'ttt' ? me : null;
+          const state =
+            type === 'ttt'
+              ? { board: Array(9).fill(null) }
+              : type === 'c4'
+              ? { board: Array(C4_ROWS * C4_COLS).fill(null) }
+              : { choices: {}, round: 1 };
+          const turn = type === 'rps' ? null : me;
           g = await api.createGame(conversationId, type, state, turn);
         }
         if (!alive) return;
@@ -99,6 +108,19 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
     if (w && w !== 'draw') api.bumpScore(conversationId, w).catch(() => {});
   }
 
+  function c4Play(col: number) {
+    if (!game || game.winner || game.turn !== me) return;
+    const board = [...(game.state?.board || Array(C4_ROWS * C4_COLS).fill(null))];
+    const idx = c4Drop(board, col);
+    if (idx < 0) return;
+    board[idx] = me;
+    const w = c4Winner(board);
+    const patch = { state: { board }, turn: w ? game.turn : other, winner: w || null };
+    setGame({ ...game, ...patch });
+    api.updateGame(game.id, patch).catch(() => {});
+    if (w && w !== 'draw') api.bumpScore(conversationId, w).catch(() => {});
+  }
+
   function rpsPick(choice: Rps) {
     if (!game || game.winner) return;
     const choices = { ...(game.state?.choices || {}) };
@@ -114,6 +136,8 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
     const patch =
       type === 'ttt'
         ? { state: { board: Array(9).fill(null) }, turn: me, winner: null }
+        : type === 'c4'
+        ? { state: { board: Array(C4_ROWS * C4_COLS).fill(null) }, turn: me, winner: null }
         : { state: { choices: {}, round: (game.state?.round || 1) + 1 }, turn: null, winner: null };
     setGame({ ...game, ...patch });
     api.updateGame(game.id, patch).catch(() => {});
@@ -157,6 +181,8 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
           <p className="py-12 text-center text-sm text-slate-400">Setting up…</p>
         ) : type === 'ttt' ? (
           <TttBoard game={game} me={me} winner={winner} onPlay={tttPlay} />
+        ) : type === 'c4' ? (
+          <C4Board game={game} me={me} winner={winner} onDrop={c4Play} />
         ) : (
           <RpsBoard game={game} me={me} other={other} winner={winner} onPick={rpsPick} />
         )}
@@ -170,7 +196,7 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
                   🔄 Play again
                 </button>
               </>
-            ) : type === 'ttt' ? (
+            ) : type !== 'rps' ? (
               <p className="text-sm text-slate-500 dark:text-slate-400">
                 {game.turn === me ? 'Your turn' : `${otherName}'s turn…`}
               </p>
@@ -217,6 +243,47 @@ function TttBoard({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function C4Board({
+  game,
+  me,
+  winner,
+  onDrop,
+}: {
+  game: any;
+  me: string;
+  winner: string | null;
+  onDrop: (col: number) => void;
+}) {
+  const board: (string | null)[] = game.state?.board || Array(C4_ROWS * C4_COLS).fill(null);
+  const disabled = !!winner || game.turn !== me;
+  return (
+    <div className="mx-auto w-full max-w-[320px] rounded-2xl bg-blue-500/90 p-2 dark:bg-blue-600/70">
+      <div className="grid grid-cols-7 gap-1">
+        {Array.from({ length: C4_COLS }).map((_, col) => (
+          <button
+            key={col}
+            onClick={() => onDrop(col)}
+            disabled={disabled}
+            className="flex flex-col gap-1 disabled:cursor-default"
+          >
+            {Array.from({ length: C4_ROWS }).map((__, row) => {
+              const cell = board[row * C4_COLS + col];
+              return (
+                <span
+                  key={row}
+                  className={`aspect-square w-full rounded-full ${
+                    cell ? (cell === me ? 'bg-red-500' : 'bg-yellow-400') : 'bg-white/85 dark:bg-white/25'
+                  }`}
+                />
+              );
+            })}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
