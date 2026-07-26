@@ -272,6 +272,24 @@ export const api = {
     return { mine, theirs, total: countA + countB };
   },
 
+  // --- stop / freeze chat --------------------------------------------------
+  async getStopped(conversationId: string): Promise<{ stoppedBy: string | null }> {
+    try {
+      const { data } = await supabase
+        .from('conversations')
+        .select('stopped_by')
+        .eq('id', conversationId)
+        .maybeSingle();
+      return { stoppedBy: data?.stopped_by ?? null };
+    } catch {
+      return { stoppedBy: null };
+    }
+  },
+  async setStopped(conversationId: string, stoppedBy: string | null): Promise<void> {
+    const { error } = await supabase.from('conversations').update({ stopped_by: stoppedBy }).eq('id', conversationId);
+    if (error) throw new Error(error.message);
+  },
+
   // --- encryption ----------------------------------------------------------
   // Per-conversation E2EE metadata: a public PBKDF2 salt and a verifier token
   // (the shared passphrase never touches the server). Reads degrade gracefully
