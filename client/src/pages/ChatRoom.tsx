@@ -20,6 +20,9 @@ import { isOnlineFresh } from '../lib/presence';
 import { loadMyWeather, weatherEmoji } from '../lib/weather';
 import { getNickname, setNickname } from '../lib/nickname';
 import { type Coords, formatDistance, getCoords, geoPermission, haversineKm, loadMyCoords, saveMyCoords } from '../lib/geo';
+import PetCat from '../components/PetCat';
+import TypingSparks from '../components/TypingSparks';
+import { catLook, catMood, moodLabel, petLevel } from '../lib/pet';
 import { decryptText, encryptText, encryptFile, greetMarker, isEncryptedText } from '../lib/crypto';
 import { formatClock, formatDuration, formatLastSeen } from '../utils/format';
 import type { AttachmentType, ChatMessage, LateStat, OtherUser, ReactionMap } from '../types';
@@ -79,6 +82,16 @@ export default function ChatRoom() {
   // --- stop / freeze --------------------------------------------------------
   const [stoppedBy, setStoppedBy] = useState<string | null>(null);
   const frozen = !!stoppedBy && stoppedBy !== user?.id; // the other person stopped me
+
+  // --- shared chat cat ------------------------------------------------------
+  const [petXp, setPetXp] = useState(0);
+  const [petStreak, setPetStreak] = useState(0);
+  useEffect(() => {
+    api.getPet(conversationId).then((p) => {
+      setPetXp(p.xp);
+      setPetStreak(p.streak);
+    });
+  }, [conversationId]);
 
   // --- location gate + distance ---------------------------------------------
   // Sending requires location access. On open we refresh our coordinates (also
@@ -278,10 +291,12 @@ export default function ChatRoom() {
         });
       }
     }
-    function onConvUpdated({ id, theme: t, stoppedBy: sb }: any) {
+    function onConvUpdated({ id, theme: t, stoppedBy: sb, petStreak: ps, petXp: px }: any) {
       if (id !== conversationId) return;
       setThemeId(t ?? null);
       setStoppedBy(sb ?? null);
+      if (typeof ps === 'number') setPetStreak(ps);
+      if (typeof px === 'number') setPetXp(px);
     }
     function onConvDeleted({ id }: any) {
       if (id === conversationId) navigate('/');
@@ -896,6 +911,16 @@ export default function ChatRoom() {
   );
   const myWeather = useMemo(() => loadMyWeather(), [presenceTick]);
   const otherHasWeather = otherUser?.weatherTemp != null;
+  // Cat mood from the latest message (recency + any emoji); recomputed on new
+  // messages and on the presence tick so it drifts to "sad" when ignored.
+  const catMoodState = useMemo(() => {
+    const last = messages[messages.length - 1];
+    if (!last) return catMood(null, null);
+    const age = Date.now() - new Date(last.createdAt).getTime();
+    const body = last.isEncrypted ? decrypted[last.id] || '' : last.text;
+    return catMood(body, age);
+  }, [messages, decrypted, presenceTick]);
+  const petLvl = petLevel(petXp);
 
   return (
     <div
@@ -904,6 +929,7 @@ export default function ChatRoom() {
     >
       {bothHere && <div className="copresence-glow animate-glow-pulse" />}
       <div className="chat-texture pointer-events-none absolute inset-0 z-0" />
+      <PetCat mood={catMoodState} level={petLvl} />
 
       <header className="safe-top sticky top-0 z-30 border-b border-black/5 bg-white/70 backdrop-blur dark:border-white/5 dark:bg-black/30">
         <div className="flex items-center gap-2 px-2 py-2.5">
@@ -1001,8 +1027,12 @@ export default function ChatRoom() {
         </div>
       </header>
 
-      {(myWeather || otherHasWeather || distanceKm != null) && (
-        <div className="relative z-10 flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5 border-b border-black/5 bg-white/40 px-3 py-1 text-[11px] text-slate-600 backdrop-blur dark:border-white/5 dark:bg-black/20 dark:text-slate-300">
+      <div className="relative z-10 flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5 border-b border-black/5 bg-white/40 px-3 py-1 text-[11px] text-slate-600 backdrop-blur dark:border-white/5 dark:bg-black/20 dark:text-slate-300">
+          <span title={`Your cat is ${moodLabel(catMoodState)}`}>
+            {catLook(catMoodState).face} Lv{petLvl}
+            {petStreak > 0 && <span className="ml-1">🔥{petStreak}</span>}
+          </span>
+          {(myWeather || otherHasWeather || distanceKm != null) && <span className="opacity-40">•</span>}
           {myWeather && (
             <span>
               {weatherEmoji(myWeather.code)} You {myWeather.temp}°
@@ -1021,7 +1051,6 @@ export default function ChatRoom() {
             </>
           )}
         </div>
-      )}
 
       <main
         ref={mainRef}
@@ -1081,6 +1110,8 @@ export default function ChatRoom() {
       )}
 
       <EffectsOverlay fx={fx} />
+
+      {otherTyping && text.trim().length > 0 && <TypingSparks />}
 
       <form onSubmit={sendMessage} className="safe-bottom relative z-10 px-2 pb-3 pt-2">
         <div className="rounded-3xl border border-black/10 bg-white/80 p-2 shadow-lg backdrop-blur dark:border-white/10 dark:bg-white/[0.06]">
