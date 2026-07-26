@@ -8,6 +8,7 @@ import Avatar from '../components/Avatar';
 import LockSetupModal from '../components/LockSetupModal';
 import { formatDuration, formatLastSeen } from '../utils/format';
 import { isEncryptedText } from '../lib/crypto';
+import { ensureNotifyPermission, notifyPermission, notifySupported } from '../lib/notify';
 import type { ConversationSummary, OtherUser } from '../types';
 
 // Preview text for the chat list — encrypted last messages show a lock instead
@@ -30,6 +31,7 @@ export default function ChatList() {
   const [searching, setSearching] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [showLock, setShowLock] = useState(false);
+  const [notifPerm, setNotifPerm] = useState<NotificationPermission>(notifyPermission());
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressed = useRef(false);
 
@@ -38,6 +40,14 @@ export default function ChatList() {
       setConversations(data.conversations);
       setLoading(false);
     });
+  }, []);
+
+  // Best-effort: ask for notification permission once. Some browsers only
+  // prompt from a user gesture — the account-menu item is the reliable fallback.
+  useEffect(() => {
+    if (notifySupported() && notifyPermission() === 'default') {
+      ensureNotifyPermission().then(setNotifPerm);
+    }
   }, []);
 
   useEffect(() => {
@@ -163,6 +173,17 @@ export default function ChatList() {
                   <div className="border-b border-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 dark:border-white/5 dark:text-slate-200">
                     @{user?.username}
                   </div>
+                  {notifySupported() && notifPerm !== 'granted' && (
+                    <button
+                      onClick={() => {
+                        ensureNotifyPermission().then(setNotifPerm);
+                        setMenuOpen(false);
+                      }}
+                      className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
+                    >
+                      🔔 {notifPerm === 'denied' ? 'Notifications blocked' : 'Enable notifications'}
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       setMenuOpen(false);

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { mapMessage, mapLateStat } from '../lib/mappers';
+import { activeChat, showMessageNotification } from '../lib/notify';
 import { useAuth } from './AuthContext';
 
 type Handler = (...args: any[]) => void;
@@ -270,6 +271,20 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       setSocket(null);
     };
   }, [token, user?.id]);
+
+  // App-wide, casual message notifications (no content). Fires when a message
+  // from the other person arrives and you're not actively looking at that chat.
+  useEffect(() => {
+    if (!socket || !user) return;
+    const onMsg = (msg: any) => {
+      if (!msg || msg.sender === user.id) return;
+      const lookingAtIt = document.visibilityState === 'visible' && activeChat.id === msg.conversation;
+      if (lookingAtIt) return;
+      showMessageNotification();
+    };
+    socket.on('message:new', onMsg);
+    return () => socket.off('message:new', onMsg);
+  }, [socket, user?.id]);
 
   return <SocketContext.Provider value={socket}>{children}</SocketContext.Provider>;
 }
