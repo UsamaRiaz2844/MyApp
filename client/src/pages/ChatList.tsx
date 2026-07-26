@@ -178,7 +178,7 @@ export default function ChatList() {
   const totalUnread = useMemo(() => conversations.reduce((a, c) => a + (c.unreadCount || 0), 0), [conversations]);
 
   return (
-    <div className="flex h-screen flex-col bg-slate-50 dark:bg-[#0b0c10]">
+    <div className="animate-page-in flex h-screen flex-col bg-slate-50 dark:bg-[#0b0c10]">
       <header className="safe-top sticky top-0 z-10 border-b border-slate-200/70 bg-white/80 backdrop-blur dark:border-white/5 dark:bg-[#0b0c10]/80">
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2">
