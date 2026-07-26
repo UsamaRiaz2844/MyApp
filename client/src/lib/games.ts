@@ -1,13 +1,25 @@
 // Game rules for the in-chat mini-games. State is stored in the `games` table
 // and synced over Realtime; these helpers are pure logic.
 
-export type GameType = 'ttt' | 'rps' | 'c4';
+export type GameType = 'ttt' | 'rps' | 'c4' | 'guess';
 
 export const GAME_META: Record<GameType, { label: string; icon: string }> = {
   ttt: { label: 'Tic-Tac-Toe', icon: '⭕' },
   c4: { label: 'Connect 4', icon: '🔴' },
+  guess: { label: 'Guess the Number', icon: '🔢' },
   rps: { label: 'Rock Paper Scissors', icon: '✊' },
 };
+
+// ---- Guess the Number (higher / lower, turn-based) -------------------------
+export interface GuessState {
+  secret: number;
+  low: number;
+  high: number;
+  guesses: { by: string; value: number; hint: 'higher' | 'lower' }[];
+}
+export function newSecret(): number {
+  return 1 + Math.floor(Math.random() * 100);
+}
 
 // ---- Tic-Tac-Toe ----------------------------------------------------------
 export interface TttState {

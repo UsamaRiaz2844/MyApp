@@ -20,6 +20,9 @@ export interface OtherUser {
   mood?: string | null;
   lat?: number | null;
   lon?: number | null;
+  activity?: string | null;
+  dayScore?: number | null;
+  dayScoreAt?: string | null;
 }
 
 export interface LateStat {

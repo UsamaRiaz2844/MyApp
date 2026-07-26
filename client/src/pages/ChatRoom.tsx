@@ -29,6 +29,7 @@ import StatsSheet from '../components/StatsSheet';
 import SharedPanel from '../components/SharedPanel';
 import { ATTACKS } from '../lib/attacks';
 import { playSound } from '../lib/soundboard';
+import { dayFace, loadMyDay, today } from '../lib/activity';
 import type { GameType } from '../lib/games';
 import { catLook, catMood, moodLabel, petLevel } from '../lib/pet';
 import { decryptText, encryptText, encryptFile, greetMarker, isEncryptedText } from '../lib/crypto';
@@ -240,7 +241,21 @@ export default function ChatRoom() {
       setOtherTyping(isTyping);
       setOtherTypingText(isTyping ? t || '' : '');
     }
-    function onPresence({ userId, isOnline, lastSeen, avatarUrl, weatherTemp, weatherCity, weatherCode, mood, lat, lon }: any) {
+    function onPresence({
+      userId,
+      isOnline,
+      lastSeen,
+      avatarUrl,
+      weatherTemp,
+      weatherCity,
+      weatherCode,
+      mood,
+      lat,
+      lon,
+      activity,
+      dayScore,
+      dayScoreAt,
+    }: any) {
       setOtherUser((prev) =>
         prev && prev.id === userId
           ? {
@@ -254,6 +269,9 @@ export default function ChatRoom() {
               mood: mood !== undefined ? mood : prev.mood,
               lat: lat !== undefined ? lat : prev.lat,
               lon: lon !== undefined ? lon : prev.lon,
+              activity: activity !== undefined ? activity : prev.activity,
+              dayScore: dayScore !== undefined ? dayScore : prev.dayScore,
+              dayScoreAt: dayScoreAt !== undefined ? dayScoreAt : prev.dayScoreAt,
             }
           : prev
       );
@@ -957,6 +975,10 @@ export default function ChatRoom() {
     return catMood(body, age);
   }, [messages, decrypted, presenceTick]);
   const petLvl = petLevel(petXp);
+  const myDay = useMemo(() => loadMyDay(), [presenceTick]);
+  const myDayToday = myDay && myDay.date === today() ? myDay.score : null;
+  const otherDayToday =
+    otherUser?.dayScoreAt && otherUser.dayScoreAt.slice(0, 10) === today() ? otherUser.dayScore ?? null : null;
 
   return (
     <div
@@ -993,6 +1015,11 @@ export default function ChatRoom() {
               {otherUser?.mood && (
                 <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-white/10 dark:text-slate-300">
                   {otherUser.mood}
+                </span>
+              )}
+              {otherUser?.activity && (
+                <span className="shrink-0 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-500 dark:bg-indigo-500/15 dark:text-indigo-300">
+                  {otherUser.activity}
                 </span>
               )}
             </div>
@@ -1088,6 +1115,16 @@ export default function ChatRoom() {
             <>
               {(myWeather || otherHasWeather) && <span className="opacity-40">•</span>}
               <span>📍 {formatDistance(distanceKm)}</span>
+            </>
+          )}
+          {(myDayToday != null || otherDayToday != null) && (
+            <>
+              <span className="opacity-40">•</span>
+              <span>
+                📅
+                {myDayToday != null && ` You ${dayFace(myDayToday)}${myDayToday}`}
+                {otherDayToday != null && ` · ${otherLabel} ${dayFace(otherDayToday)}${otherDayToday}`}
+              </span>
             </>
           )}
         </div>
