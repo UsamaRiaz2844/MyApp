@@ -116,7 +116,13 @@ class SupabaseSocket implements RealtimeClient {
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversations' }, (p) => {
         const row: any = p.new;
         if (row && row.id)
-          this.dispatch('conversation:updated', { id: row.id, theme: row.theme, stoppedBy: row.stopped_by ?? null });
+          this.dispatch('conversation:updated', {
+            id: row.id,
+            theme: row.theme,
+            stoppedBy: row.stopped_by ?? null,
+            petStreak: row.pet_streak ?? undefined,
+            petXp: row.pet_xp ?? undefined,
+          });
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'conversations' }, (p) => {
         const row: any = p.old;

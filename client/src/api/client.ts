@@ -281,6 +281,20 @@ export const api = {
       .eq('id', me);
   },
 
+  // --- pet (shared chat cat) -----------------------------------------------
+  async getPet(conversationId: string): Promise<{ streak: number; xp: number }> {
+    try {
+      const { data } = await supabase
+        .from('conversations')
+        .select('pet_streak, pet_xp')
+        .eq('id', conversationId)
+        .maybeSingle();
+      return { streak: data?.pet_streak ?? 0, xp: data?.pet_xp ?? 0 };
+    } catch {
+      return { streak: 0, xp: 0 };
+    }
+  },
+
   // --- location ------------------------------------------------------------
   async updateLocation(lat: number, lon: number): Promise<void> {
     const me = await myId();
