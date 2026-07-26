@@ -656,7 +656,10 @@ export default function ChatRoom() {
   const myLateMs = todayStat?.lateMs?.[user?.id || ''] || 0;
 
   return (
-    <div className="chat-surface relative flex h-[100dvh] flex-col" style={{ backgroundColor: bg }}>
+    <div
+      className="chat-surface relative flex h-[100dvh] flex-col"
+      style={{ background: bg, fontFamily: theme.font }}
+    >
       {bothHere && <div className="copresence-glow animate-glow-pulse" />}
 
       <header className="safe-top sticky top-0 z-30 border-b border-black/5 bg-white/70 backdrop-blur dark:border-white/5 dark:bg-black/30">
@@ -763,6 +766,8 @@ export default function ChatRoom() {
                   m={m}
                   mine={m.sender === user?.id}
                   mineClass={theme.mine}
+                  theirClass={theme.theirs}
+                  mineMeta={theme.mineMeta}
                   reactions={reactions[m.id]}
                   displayText={bodyFor(m)}
                   cryptoKey={cryptoKey}
@@ -940,7 +945,7 @@ export default function ChatRoom() {
                 type="button"
                 onClick={stopRecording}
                 title="Send voice note"
-                className={`flex h-10 w-10 items-center justify-center rounded-full text-white shadow-lg transition active:scale-90 ${theme.mine}`}
+                className={`flex h-10 w-10 items-center justify-center rounded-full shadow-lg transition active:scale-90 ${theme.accent}`}
               >
                 ➤
               </button>
@@ -972,7 +977,7 @@ export default function ChatRoom() {
             <button
               type="submit"
               disabled={!text.trim()}
-              className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white shadow-lg transition active:scale-90 disabled:opacity-40 ${theme.mine}`}
+              className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full shadow-lg transition active:scale-90 disabled:opacity-40 ${theme.accent}`}
             >
               {editing ? '✓' : '➤'}
             </button>

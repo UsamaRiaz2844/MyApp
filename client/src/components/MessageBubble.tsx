@@ -14,6 +14,8 @@ interface Props {
   m: ChatMessage;
   mine: boolean;
   mineClass: string; // theme bubble classes for own messages
+  theirClass?: string; // theme bubble classes for received messages
+  mineMeta?: string; // meta-row text colour on my bubble
   reactions?: Record<string, string>; // userId -> emoji
   displayText?: string; // decrypted/plaintext body to render (falls back to m.text)
   cryptoKey?: CryptoKey | null; // for decrypting encrypted media
@@ -31,6 +33,8 @@ export default function MessageBubble({
   m,
   mine,
   mineClass,
+  theirClass,
+  mineMeta,
   reactions,
   displayText,
   cryptoKey,
@@ -152,7 +156,9 @@ export default function MessageBubble({
           className={`animate-pop-in select-none text-sm shadow-sm ${
             hasImage ? 'overflow-hidden p-1' : 'px-3.5 py-2.5'
           } rounded-2xl ${
-            mine ? `rounded-br-sm ${mineClass}` : 'rounded-bl-sm bg-white text-slate-800 dark:bg-white/10 dark:text-slate-100'
+            mine
+              ? `rounded-br-sm ${mineClass}`
+              : `rounded-bl-sm ${theirClass ?? 'bg-white text-slate-800 dark:bg-white/10 dark:text-slate-100'}`
           } ${reactionList.length ? 'mb-2' : ''} ${highlighted ? 'ring-2 ring-brand-400' : ''}`}
         >
           {quoted && (
@@ -207,7 +213,7 @@ export default function MessageBubble({
           <div
             className={`flex items-center justify-end gap-1 text-[10px] ${
               hasImage ? 'px-2.5 pb-1 pt-1' : 'mt-1'
-            } ${mine ? 'text-white/80' : 'text-slate-400'}`}
+            } ${mine ? mineMeta ?? 'text-white/80' : 'text-slate-400'}`}
           >
             {m.editedAt && <span className="italic opacity-80">edited</span>}
             <span>{formatMessageTime(m.createdAt)}</span>
