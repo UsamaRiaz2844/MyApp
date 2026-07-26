@@ -17,6 +17,7 @@ export interface OtherUser {
   weatherTemp?: number | null;
   weatherCity?: string | null;
   weatherCode?: number | null;
+  mood?: string | null;
 }
 
 export interface LateStat {

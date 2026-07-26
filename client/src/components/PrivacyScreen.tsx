@@ -7,18 +7,18 @@ export default function PrivacyScreen() {
   const [obscured, setObscured] = useState(false);
 
   useEffect(() => {
+    // Only react to genuine background/foreground transitions. We deliberately
+    // avoid window blur/focus, which also fire for the on-screen keyboard and the
+    // notification shade — that caused the veil (and previously the lock) to flash
+    // during normal use.
     const show = () => setObscured(true);
     const hide = () => setObscured(false);
     const onVis = () => (document.visibilityState === 'hidden' ? show() : hide());
     document.addEventListener('visibilitychange', onVis);
-    window.addEventListener('blur', show);
-    window.addEventListener('focus', hide);
     window.addEventListener('pagehide', show);
     window.addEventListener('pageshow', hide);
     return () => {
       document.removeEventListener('visibilitychange', onVis);
-      window.removeEventListener('blur', show);
-      window.removeEventListener('focus', hide);
       window.removeEventListener('pagehide', show);
       window.removeEventListener('pageshow', hide);
     };

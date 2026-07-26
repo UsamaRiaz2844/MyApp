@@ -18,6 +18,7 @@ import { useConversationCrypto } from '../lib/useConversationCrypto';
 import { activeChat } from '../lib/notify';
 import { isOnlineFresh } from '../lib/presence';
 import { loadMyWeather, weatherEmoji } from '../lib/weather';
+import { getNickname, setNickname } from '../lib/nickname';
 import { decryptText, encryptText, encryptFile, greetMarker, isEncryptedText } from '../lib/crypto';
 import { formatClock, formatDuration, formatLastSeen } from '../utils/format';
 import type { AttachmentType, ChatMessage, LateStat, OtherUser, ReactionMap } from '../types';
@@ -77,6 +78,21 @@ export default function ChatRoom() {
   // --- stop / freeze --------------------------------------------------------
   const [stoppedBy, setStoppedBy] = useState<string | null>(null);
   const frozen = !!stoppedBy && stoppedBy !== user?.id; // the other person stopped me
+
+  // --- private nickname for the other person (local to this device) ----------
+  const [nickname, setNick] = useState<string | null>(null);
+  useEffect(() => {
+    setNick(getNickname(otherUser?.id));
+  }, [otherUser?.id]);
+  const otherLabel = nickname || (otherUser?.username ? `@${otherUser.username}` : '…');
+  function renameOther() {
+    if (!otherUser) return;
+    setMenuOpen(false);
+    const next = window.prompt(`Nickname for @${otherUser.username} (leave blank to reset):`, nickname || '');
+    if (next === null) return; // cancelled
+    setNickname(otherUser.id, next);
+    setNick(next.trim() || null);
+  }
 
   const [hasMore, setHasMore] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -166,7 +182,7 @@ export default function ChatRoom() {
       setOtherTyping(isTyping);
       setOtherTypingText(isTyping ? t || '' : '');
     }
-    function onPresence({ userId, isOnline, lastSeen, avatarUrl, weatherTemp, weatherCity, weatherCode }: any) {
+    function onPresence({ userId, isOnline, lastSeen, avatarUrl, weatherTemp, weatherCity, weatherCode, mood }: any) {
       setOtherUser((prev) =>
         prev && prev.id === userId
           ? {
@@ -177,6 +193,7 @@ export default function ChatRoom() {
               weatherTemp: weatherTemp !== undefined ? weatherTemp : prev.weatherTemp,
               weatherCity: weatherCity !== undefined ? weatherCity : prev.weatherCity,
               weatherCode: weatherCode !== undefined ? weatherCode : prev.weatherCode,
+              mood: mood !== undefined ? mood : prev.mood,
             }
           : prev
       );
@@ -841,10 +858,10 @@ export default function ChatRoom() {
       <div className="chat-texture pointer-events-none absolute inset-0 z-0" />
 
       <header className="safe-top sticky top-0 z-30 border-b border-black/5 bg-white/70 backdrop-blur dark:border-white/5 dark:bg-black/30">
-        <div className="flex items-center gap-3 px-3 py-2.5">
+        <div className="flex items-center gap-2 px-2 py-2.5">
           <button
             onClick={() => navigate('/')}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xl text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xl text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10"
           >
             ←
           </button>
@@ -857,7 +874,14 @@ export default function ChatRoom() {
             size={40}
           />
           <div className="min-w-0 flex-1">
-            <p className="truncate font-semibold text-slate-900 dark:text-white">@{otherUser?.username}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="truncate font-semibold text-slate-900 dark:text-white">{otherLabel}</p>
+              {otherUser?.mood && (
+                <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-white/10 dark:text-slate-300">
+                  {otherUser.mood}
+                </span>
+              )}
+            </div>
             <p className="truncate text-xs text-slate-400">
               {bothHere ? (
                 <span className="font-medium text-pink-500 dark:text-pink-400">✨ you're both here</span>
@@ -877,7 +901,7 @@ export default function ChatRoom() {
                 ? 'Locked — tap to unlock'
                 : 'Turn on encryption'
             }
-            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base transition active:scale-90 ${
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base transition active:scale-90 ${
               encStatus === 'ready'
                 ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400'
                 : encStatus === 'locked'
@@ -889,19 +913,25 @@ export default function ChatRoom() {
           </button>
           <button
             onClick={() => setShowStatsSheet(true)}
-            className="flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-500/20"
+            className="flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-xs font-semibold tabular-nums text-amber-700 ring-1 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-500/20"
           >
             ⏱ {formatDuration(myLateMs)}
           </button>
           <div className="relative shrink-0">
             <button
               onClick={() => setMenuOpen((v) => !v)}
-              className="flex h-9 w-9 items-center justify-center rounded-full text-xl text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-xl text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10"
             >
               ⋮
             </button>
             {menuOpen && (
               <div className="absolute right-0 top-11 z-40 w-44 overflow-hidden rounded-xl bg-white py-1 shadow-xl ring-1 ring-black/5 dark:bg-[#17181f] dark:ring-white/10">
+                <button
+                  onClick={renameOther}
+                  className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
+                >
+                  ✏️ Set nickname
+                </button>
                 <button
                   onClick={() => {
                     setMenuOpen(false);
@@ -927,14 +957,13 @@ export default function ChatRoom() {
         <div className="relative z-10 flex items-center justify-center gap-3 border-b border-black/5 bg-white/40 px-3 py-1 text-[11px] text-slate-600 backdrop-blur dark:border-white/5 dark:bg-black/20 dark:text-slate-300">
           {myWeather && (
             <span>
-              {weatherEmoji(myWeather.code)} You {myWeather.temp}°{myWeather.city ? ` · ${myWeather.city}` : ''}
+              {weatherEmoji(myWeather.code)} You {myWeather.temp}°
             </span>
           )}
           {myWeather && otherHasWeather && <span className="opacity-40">•</span>}
           {otherHasWeather && (
             <span>
               {weatherEmoji(otherUser!.weatherCode)} @{otherUser!.username} {Math.round(otherUser!.weatherTemp!)}°
-              {otherUser!.weatherCity ? ` · ${otherUser!.weatherCity}` : ''}
             </span>
           )}
         </div>
@@ -1072,10 +1101,12 @@ export default function ChatRoom() {
         <div className="no-scrollbar mb-2 flex items-center gap-1.5 overflow-x-auto">
           <button
             type="button"
-            onClick={() => setShowEmoji(true)}
+            onClick={() => setShowEmoji((v) => !v)}
             disabled={frozen}
             title="Emoji"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-yellow-50 text-lg transition active:scale-90 disabled:opacity-40 dark:bg-yellow-500/10"
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg transition active:scale-90 disabled:opacity-40 ${
+              showEmoji ? 'bg-brand-500 text-white' : 'bg-yellow-50 dark:bg-yellow-500/10'
+            }`}
           >
             😊
           </button>
@@ -1199,6 +1230,10 @@ export default function ChatRoom() {
         )}
         </div>
 
+        {showEmoji && !frozen && (
+          <EmojiPicker onPick={(e) => setText((t) => t + e)} onClose={() => setShowEmoji(false)} />
+        )}
+
         <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={onImageSelected} />
       </form>
 
@@ -1210,10 +1245,6 @@ export default function ChatRoom() {
           onSubmit={encStatus === 'off' ? crypto.enable : crypto.unlock}
           onClose={() => setShowEncModal(false)}
         />
-      )}
-
-      {showEmoji && (
-        <EmojiPicker onPick={(e) => setText((t) => t + e)} onClose={() => setShowEmoji(false)} />
       )}
 
       {actionMsg && user && (
