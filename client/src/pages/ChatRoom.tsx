@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -7,7 +7,8 @@ import { useTheme } from '../context/ThemeContext';
 import Avatar from '../components/Avatar';
 import TypingDots from '../components/TypingDots';
 import LateStatsSheet from '../components/LateStatsSheet';
-import MessageBubble, { QuotedPreview } from '../components/MessageBubble';
+import { QuotedPreview } from '../components/MessageBubble';
+import MessageList from '../components/MessageList';
 import MessageActions from '../components/MessageActions';
 import EffectsOverlay, { Fx } from '../components/EffectsOverlay';
 import EncryptionModal from '../components/EncryptionModal';
@@ -16,7 +17,7 @@ import { useConversationCrypto } from '../lib/useConversationCrypto';
 import { activeChat } from '../lib/notify';
 import { isOnlineFresh } from '../lib/presence';
 import { decryptText, encryptText, encryptFile, greetMarker, isEncryptedText } from '../lib/crypto';
-import { formatClock, formatDayLabel, formatDuration, formatLastSeen } from '../utils/format';
+import { formatClock, formatDuration, formatLastSeen } from '../utils/format';
 import type { AttachmentType, ChatMessage, LateStat, OtherUser, ReactionMap } from '../types';
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
@@ -70,9 +71,15 @@ export default function ChatRoom() {
   const [editing, setEditing] = useState<ChatMessage | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
 
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
   const nearBottomRef = useRef(true);
+  const loadingOlderRef = useRef(false);
   const prevTyping = useRef(false);
+  const lastTypingEmit = useRef(0);
+  const lastNewestRef = useRef<string | null>(null);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fxCounter = useRef(0);
   const [presenceTick, setPresenceTick] = useState(0); // re-evaluates online freshness
@@ -96,7 +103,13 @@ export default function ChatRoom() {
 
   useEffect(() => {
     setLoading(true);
-    api.getMessages(conversationId).then((d) => setMessages(d.messages)).finally(() => setLoading(false));
+    api
+      .getMessages(conversationId)
+      .then((d) => {
+        setMessages(d.messages);
+        setHasMore(d.hasMore);
+      })
+      .finally(() => setLoading(false));
     api.markSeen(conversationId).catch(() => {});
     api.getLateStats(conversationId).then((d) => setTodayStat(d.stat)).catch(() => {});
     api.getReactions(conversationId).then((d) => setReactions(d.reactions)).catch(() => {});
@@ -256,17 +269,20 @@ export default function ChatRoom() {
   useEffect(() => {
     if (loading) return;
     nearBottomRef.current = true;
+    lastNewestRef.current = messages.length ? messages[messages.length - 1].id : null;
     requestAnimationFrame(() => scrollToBottom(false));
     const t = setTimeout(() => scrollToBottom(false), 250);
     return () => clearTimeout(t);
-  }, [loading, conversationId]);
+  }, [loading, conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // On a new message: scroll down only if I sent it or I'm already near the
-  // bottom — so reading history (or watching the other person type) isn't yanked.
-  const lastMsg = messages[messages.length - 1];
+  // On a genuinely new message (appended at the end — not an older page loaded
+  // at the top): scroll down only if I sent it or I'm already near the bottom.
   useEffect(() => {
     if (loading) return;
-    if (lastMsg?.sender === user?.id || nearBottomRef.current) scrollToBottom(true);
+    const newest = messages.length ? messages[messages.length - 1] : null;
+    if (!newest || newest.id === lastNewestRef.current) return;
+    lastNewestRef.current = newest.id;
+    if (newest.sender === user?.id || nearBottomRef.current) scrollToBottom(true);
   }, [messages.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep the live typing preview visible only when already at the bottom.
@@ -274,12 +290,16 @@ export default function ChatRoom() {
     if (otherTyping && nearBottomRef.current) scrollToBottom(true);
   }, [otherTyping, otherTypingText]);
 
-  // Safety net for missed realtime inserts (#1): pull any messages we don't have
-  // and merge them in, without disturbing optimistic/local ones.
+  // Safety net for missed realtime inserts (#1): pull only messages NEWER than
+  // the latest we have (cheap) and merge them in, without disturbing optimistic
+  // ones.
   function syncMessages() {
-    api
-      .getMessages(conversationId)
-      .then((d) => {
+    const existing = messagesRef.current;
+    const newest = existing.length ? existing[existing.length - 1].createdAt : null;
+    const req = newest ? api.getMessagesSince(conversationId, newest) : api.getMessages(conversationId).then((d) => d);
+    req
+      .then((d: { messages: ChatMessage[] }) => {
+        if (!d.messages.length) return;
         setMessages((prev) => {
           const have = new Set(prev.map((m) => m.id));
           const missing = d.messages.filter((m) => !have.has(m.id));
@@ -290,6 +310,38 @@ export default function ChatRoom() {
         });
       })
       .catch(() => {});
+  }
+
+  // Load an older page when the user scrolls near the top, preserving position.
+  function loadOlder() {
+    if (loadingOlderRef.current || !hasMore) return;
+    const first = messagesRef.current[0];
+    if (!first) return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    const el = mainRef.current;
+    const prevHeight = el?.scrollHeight ?? 0;
+    api
+      .getMessagesBefore(conversationId, first.createdAt)
+      .then((d) => {
+        setHasMore(d.hasMore);
+        if (d.messages.length) {
+          setMessages((prev) => {
+            const have = new Set(prev.map((m) => m.id));
+            const older = d.messages.filter((m) => !have.has(m.id));
+            return [...older, ...prev];
+          });
+          // keep the viewport anchored where the user was after prepending
+          requestAnimationFrame(() => {
+            if (el) el.scrollTop += el.scrollHeight - prevHeight;
+          });
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        loadingOlderRef.current = false;
+        setLoadingOlder(false);
+      });
   }
 
   // Poll while visible + resync on regaining focus (covers dropped subscriptions).
@@ -380,12 +432,6 @@ export default function ChatRoom() {
     else label = bodyFor(orig) || 'Message';
     return { author: mineOrig ? 'You' : `@${otherUser?.username ?? ''}`, label, mine: mineOrig };
   }
-  function quotedFor(m: ChatMessage): QuotedPreview | null {
-    if (!m.replyTo) return null;
-    const orig = messageById.get(m.replyTo);
-    if (!orig) return { author: 'Message', label: 'Message unavailable', mine: false };
-    return describeMessage(orig);
-  }
   function jumpToMessage(id: string) {
     const el = document.getElementById(`msg-${id}`);
     if (!el) return;
@@ -393,6 +439,18 @@ export default function ChatRoom() {
     setHighlightId(id);
     setTimeout(() => setHighlightId((cur) => (cur === id ? null : cur)), 1500);
   }
+
+  // Stable callbacks for the memoized MessageList (so typing doesn't re-render it).
+  const handleQuickReact = useCallback((m: ChatMessage) => doReact(m, '❤️'), [reactions, user, conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const handleOpenActions = useCallback((m: ChatMessage) => setActionMsg(m), []);
+  const handleReply = useCallback((m: ChatMessage) => setReplyTo(m), []);
+  const handleQuoteTap = useCallback((replyToId: string) => {
+    const el = document.getElementById(`msg-${replyToId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHighlightId(replyToId);
+    setTimeout(() => setHighlightId((cur) => (cur === replyToId ? null : cur)), 1500);
+  }, []);
 
   // Only your own text messages can be edited (and, if encrypted, only when
   // you can actually read them on this device).
@@ -461,7 +519,13 @@ export default function ChatRoom() {
   function handleTextChange(v: string) {
     setText(v);
     if (!socket || editing) return; // don't broadcast a typing preview while editing
-    socket.emit('typing', { conversationId, isTyping: v.length > 0, text: v });
+    // Throttle the typing broadcast so fast typing/deleting doesn't spam the
+    // channel (the stop-timeout below always sends the final "stopped" state).
+    const now = Date.now();
+    if (now - lastTypingEmit.current > 300) {
+      lastTypingEmit.current = now;
+      socket.emit('typing', { conversationId, isTyping: v.length > 0, text: v });
+    }
     if (typingTimeout.current) clearTimeout(typingTimeout.current);
     typingTimeout.current = setTimeout(() => socket.emit('typing', { conversationId, isTyping: false, text: '' }), 2500);
   }
@@ -734,23 +798,6 @@ export default function ChatRoom() {
     }
   }
 
-  const messageById = useMemo(() => {
-    const map = new Map<string, ChatMessage>();
-    for (const x of messages) map.set(x.id, x);
-    return map;
-  }, [messages]);
-
-  const grouped = useMemo(() => {
-    const groups: { day: string; items: ChatMessage[] }[] = [];
-    for (const m of messages) {
-      const day = formatDayLabel(m.createdAt);
-      const last = groups[groups.length - 1];
-      if (last && last.day === day) last.items.push(m);
-      else groups.push({ day, items: [m] });
-    }
-    return groups;
-  }, [messages]);
-
   const myLateMs = todayStat?.lateMs?.[user?.id || ''] || 0;
   const otherOnline = useMemo(
     () => isOnlineFresh(otherUser?.isOnline, otherUser?.lastSeen),
@@ -849,10 +896,12 @@ export default function ChatRoom() {
       </header>
 
       <main
+        ref={mainRef}
         className="no-scrollbar relative z-10 flex-1 space-y-1 overflow-y-auto px-3 py-4"
         onScroll={(e) => {
           const el = e.currentTarget;
           nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+          if (el.scrollTop < 80) loadOlder();
         }}
         onClick={() => menuOpen && setMenuOpen(false)}
       >
@@ -864,34 +913,23 @@ export default function ChatRoom() {
             <p className="text-sm text-slate-400">Say hi to @{otherUser?.username} to start chatting</p>
           </div>
         ) : (
-          grouped.map((group) => (
-            <div key={group.day}>
-              <div className="my-3 flex justify-center">
-                <span className="rounded-full bg-black/5 px-3 py-1 text-[11px] font-medium text-slate-500 dark:bg-white/5 dark:text-slate-400">
-                  {group.day}
-                </span>
-              </div>
-              {group.items.map((m) => (
-                <MessageBubble
-                  key={m.id}
-                  m={m}
-                  mine={m.sender === user?.id}
-                  mineClass={theme.mine}
-                  theirClass={theme.theirs}
-                  mineMeta={theme.mineMeta}
-                  reactions={reactions[m.id]}
-                  displayText={bodyFor(m)}
-                  cryptoKey={cryptoKey}
-                  quoted={quotedFor(m)}
-                  highlighted={highlightId === m.id}
-                  onQuickReact={() => doReact(m, '❤️')}
-                  onOpenActions={() => setActionMsg(m)}
-                  onReply={() => setReplyTo(m)}
-                  onQuoteTap={() => m.replyTo && jumpToMessage(m.replyTo)}
-                />
-              ))}
-            </div>
-          ))
+          <>
+            {loadingOlder && <p className="py-2 text-center text-xs text-slate-400">Loading earlier messages…</p>}
+            <MessageList
+              messages={messages}
+              myId={user?.id}
+              otherUsername={otherUser?.username}
+              theme={theme}
+              reactions={reactions}
+              decrypted={decrypted}
+              cryptoKey={cryptoKey}
+              highlightId={highlightId}
+              onQuickReact={handleQuickReact}
+              onOpenActions={handleOpenActions}
+              onReply={handleReply}
+              onQuoteTap={handleQuoteTap}
+            />
+          </>
         )}
         {otherTyping && (
           <div className="flex justify-start">

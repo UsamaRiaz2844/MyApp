@@ -105,11 +105,45 @@ export const api = {
   },
 
   // --- messages ------------------------------------------------------------
-  async getMessages(conversationId: string): Promise<{ messages: ChatMessage[] }> {
+  // Loads the most recent `limit` messages (returned oldest→newest) instead of
+  // the entire history, so opening a chat stays fast as it grows.
+  async getMessages(conversationId: string, limit = 40): Promise<{ messages: ChatMessage[]; hasMore: boolean }> {
     const { data, error } = await supabase
       .from('messages')
       .select('*')
       .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) throw new Error(error.message);
+    const rows = (data || []).slice().reverse();
+    return { messages: rows.map(mapMessage), hasMore: (data || []).length === limit };
+  },
+
+  // Older page: messages strictly before `beforeIso`, returned oldest→newest.
+  async getMessagesBefore(
+    conversationId: string,
+    beforeIso: string,
+    limit = 40
+  ): Promise<{ messages: ChatMessage[]; hasMore: boolean }> {
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .lt('created_at', beforeIso)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) throw new Error(error.message);
+    const rows = (data || []).slice().reverse();
+    return { messages: rows.map(mapMessage), hasMore: (data || []).length === limit };
+  },
+
+  // Catch-up: only messages newer than what we already have (cheap poll).
+  async getMessagesSince(conversationId: string, sinceIso: string): Promise<{ messages: ChatMessage[] }> {
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .gt('created_at', sinceIso)
       .order('created_at', { ascending: true });
     if (error) throw new Error(error.message);
     return { messages: (data || []).map(mapMessage) };
