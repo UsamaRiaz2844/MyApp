@@ -131,6 +131,9 @@ class SupabaseSocket implements RealtimeClient {
           isOnline: !!row.is_online,
           lastSeen: row.last_seen || null,
           avatarUrl: row.avatar_url || null,
+          weatherTemp: row.weather_temp ?? null,
+          weatherCity: row.weather_city ?? null,
+          weatherCode: row.weather_code ?? null,
         });
       })
       .subscribe();

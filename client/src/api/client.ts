@@ -272,6 +272,15 @@ export const api = {
     return { mine, theirs, total: countA + countB };
   },
 
+  // --- weather -------------------------------------------------------------
+  async updateWeather(temp: number, city: string, code: number): Promise<void> {
+    const me = await myId();
+    await supabase
+      .from('profiles')
+      .update({ weather_temp: temp, weather_city: city, weather_code: code, weather_at: new Date().toISOString() })
+      .eq('id', me);
+  },
+
   // --- stop / freeze chat --------------------------------------------------
   async getStopped(conversationId: string): Promise<{ stoppedBy: string | null }> {
     try {

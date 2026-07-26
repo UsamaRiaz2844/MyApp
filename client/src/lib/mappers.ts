@@ -11,6 +11,9 @@ export function mapProfile(row: any): OtherUser {
     avatarUrl: row.avatar_url || null,
     isOnline: !!row.is_online,
     lastSeen: row.last_seen || null,
+    weatherTemp: row.weather_temp ?? null,
+    weatherCity: row.weather_city ?? null,
+    weatherCode: row.weather_code ?? null,
   };
 }
 

@@ -10,6 +10,7 @@ import { formatDuration, formatLastSeen } from '../utils/format';
 import { isEncryptedText } from '../lib/crypto';
 import { isOnlineFresh } from '../lib/presence';
 import { ensureNotifyPermission, notifyPermission, notifySupported } from '../lib/notify';
+import { fetchMyWeather, saveMyWeather, weatherStale } from '../lib/weather';
 import type { ConversationSummary, OtherUser } from '../types';
 
 // Preview text for the chat list — encrypted last messages show a lock instead
@@ -57,6 +58,17 @@ export default function ChatList() {
   useEffect(() => {
     const id = setInterval(() => setPresenceTick((t) => t + 1), 15000);
     return () => clearInterval(id);
+  }, []);
+
+  // Refresh my weather (browser location → Open-Meteo) and share it, at most
+  // every ~20 min. Fails silently if location is denied/unavailable.
+  useEffect(() => {
+    if (!weatherStale(20)) return;
+    fetchMyWeather().then((w) => {
+      if (!w) return;
+      saveMyWeather(w);
+      api.updateWeather(w.temp, w.city, w.code).catch(() => {});
+    });
   }, []);
 
   async function onAvatarSelected(e: React.ChangeEvent<HTMLInputElement>) {

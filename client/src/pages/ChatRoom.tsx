@@ -17,6 +17,7 @@ import { CHAT_THEMES, getTheme } from '../lib/themes';
 import { useConversationCrypto } from '../lib/useConversationCrypto';
 import { activeChat } from '../lib/notify';
 import { isOnlineFresh } from '../lib/presence';
+import { loadMyWeather, weatherEmoji } from '../lib/weather';
 import { decryptText, encryptText, encryptFile, greetMarker, isEncryptedText } from '../lib/crypto';
 import { formatClock, formatDuration, formatLastSeen } from '../utils/format';
 import type { AttachmentType, ChatMessage, LateStat, OtherUser, ReactionMap } from '../types';
@@ -165,7 +166,7 @@ export default function ChatRoom() {
       setOtherTyping(isTyping);
       setOtherTypingText(isTyping ? t || '' : '');
     }
-    function onPresence({ userId, isOnline, lastSeen, avatarUrl }: any) {
+    function onPresence({ userId, isOnline, lastSeen, avatarUrl, weatherTemp, weatherCity, weatherCode }: any) {
       setOtherUser((prev) =>
         prev && prev.id === userId
           ? {
@@ -173,6 +174,9 @@ export default function ChatRoom() {
               isOnline,
               lastSeen: lastSeen || prev.lastSeen,
               avatarUrl: avatarUrl !== undefined ? avatarUrl : prev.avatarUrl,
+              weatherTemp: weatherTemp !== undefined ? weatherTemp : prev.weatherTemp,
+              weatherCity: weatherCity !== undefined ? weatherCity : prev.weatherCity,
+              weatherCode: weatherCode !== undefined ? weatherCode : prev.weatherCode,
             }
           : prev
       );
@@ -825,6 +829,8 @@ export default function ChatRoom() {
     () => isOnlineFresh(otherUser?.isOnline, otherUser?.lastSeen),
     [otherUser?.isOnline, otherUser?.lastSeen, presenceTick]
   );
+  const myWeather = useMemo(() => loadMyWeather(), [presenceTick]);
+  const otherHasWeather = otherUser?.weatherTemp != null;
 
   return (
     <div
@@ -916,6 +922,23 @@ export default function ChatRoom() {
           </div>
         </div>
       </header>
+
+      {(myWeather || otherHasWeather) && (
+        <div className="relative z-10 flex items-center justify-center gap-3 border-b border-black/5 bg-white/40 px-3 py-1 text-[11px] text-slate-600 backdrop-blur dark:border-white/5 dark:bg-black/20 dark:text-slate-300">
+          {myWeather && (
+            <span>
+              {weatherEmoji(myWeather.code)} You {myWeather.temp}°{myWeather.city ? ` · ${myWeather.city}` : ''}
+            </span>
+          )}
+          {myWeather && otherHasWeather && <span className="opacity-40">•</span>}
+          {otherHasWeather && (
+            <span>
+              {weatherEmoji(otherUser!.weatherCode)} @{otherUser!.username} {Math.round(otherUser!.weatherTemp!)}°
+              {otherUser!.weatherCity ? ` · ${otherUser!.weatherCity}` : ''}
+            </span>
+          )}
+        </div>
+      )}
 
       <main
         ref={mainRef}
