@@ -39,6 +39,8 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        // Adds a notificationclick handler (focus/open the app) to the SW.
+        importScripts: ['sw-notify.js'],
       },
     }),
   ],

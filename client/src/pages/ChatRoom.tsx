@@ -13,6 +13,7 @@ import EffectsOverlay, { Fx } from '../components/EffectsOverlay';
 import EncryptionModal from '../components/EncryptionModal';
 import { CHAT_THEMES, getTheme } from '../lib/themes';
 import { useConversationCrypto } from '../lib/useConversationCrypto';
+import { activeChat } from '../lib/notify';
 import { decryptText, encryptText, encryptFile, greetMarker, isEncryptedText } from '../lib/crypto';
 import { formatClock, formatDayLabel, formatDuration, formatLastSeen } from '../utils/format';
 import type { AttachmentType, ChatMessage, LateStat, OtherUser, ReactionMap } from '../types';
@@ -101,6 +102,14 @@ export default function ChatRoom() {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  // Tell the notifier which chat is on screen so it won't notify for this one.
+  useEffect(() => {
+    activeChat.id = conversationId;
+    return () => {
+      if (activeChat.id === conversationId) activeChat.id = null;
+    };
+  }, [conversationId]);
 
   useEffect(() => {
     if (!socket) return;
