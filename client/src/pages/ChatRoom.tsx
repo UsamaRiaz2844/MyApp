@@ -19,6 +19,7 @@ import { activeChat } from '../lib/notify';
 import { isOnlineFresh } from '../lib/presence';
 import { loadMyWeather, weatherEmoji } from '../lib/weather';
 import { getNickname, setNickname } from '../lib/nickname';
+import { type Coords, formatDistance, getCoords, geoPermission, haversineKm, loadMyCoords, saveMyCoords } from '../lib/geo';
 import { decryptText, encryptText, encryptFile, greetMarker, isEncryptedText } from '../lib/crypto';
 import { formatClock, formatDuration, formatLastSeen } from '../utils/format';
 import type { AttachmentType, ChatMessage, LateStat, OtherUser, ReactionMap } from '../types';
@@ -78,6 +79,36 @@ export default function ChatRoom() {
   // --- stop / freeze --------------------------------------------------------
   const [stoppedBy, setStoppedBy] = useState<string | null>(null);
   const frozen = !!stoppedBy && stoppedBy !== user?.id; // the other person stopped me
+
+  // --- location gate + distance ---------------------------------------------
+  // Sending requires location access. On open we refresh our coordinates (also
+  // used to show how far apart the two of you are).
+  const [geoOk, setGeoOk] = useState<boolean | null>(null);
+  const [myCoords, setMyCoords] = useState<Coords | null>(() => loadMyCoords());
+  async function syncLocation(): Promise<boolean> {
+    try {
+      const c = await getCoords();
+      setMyCoords(c);
+      saveMyCoords(c);
+      api.updateLocation(c.lat, c.lon).catch(() => {});
+      setGeoOk(true);
+      return true;
+    } catch {
+      setGeoOk(false);
+      return false;
+    }
+  }
+  useEffect(() => {
+    geoPermission().then((state) => {
+      if (state === 'granted') syncLocation();
+      else setGeoOk(false);
+    });
+  }, [conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const distanceKm = useMemo(() => {
+    if (!myCoords || otherUser?.lat == null || otherUser?.lon == null) return null;
+    return haversineKm(myCoords, { lat: otherUser.lat, lon: otherUser.lon });
+  }, [myCoords, otherUser?.lat, otherUser?.lon]);
 
   // --- private nickname for the other person (local to this device) ----------
   const [nickname, setNick] = useState<string | null>(null);
@@ -182,7 +213,7 @@ export default function ChatRoom() {
       setOtherTyping(isTyping);
       setOtherTypingText(isTyping ? t || '' : '');
     }
-    function onPresence({ userId, isOnline, lastSeen, avatarUrl, weatherTemp, weatherCity, weatherCode, mood }: any) {
+    function onPresence({ userId, isOnline, lastSeen, avatarUrl, weatherTemp, weatherCity, weatherCode, mood, lat, lon }: any) {
       setOtherUser((prev) =>
         prev && prev.id === userId
           ? {
@@ -194,6 +225,8 @@ export default function ChatRoom() {
               weatherCity: weatherCity !== undefined ? weatherCity : prev.weatherCity,
               weatherCode: weatherCode !== undefined ? weatherCode : prev.weatherCode,
               mood: mood !== undefined ? mood : prev.mood,
+              lat: lat !== undefined ? lat : prev.lat,
+              lon: lon !== undefined ? lon : prev.lon,
             }
           : prev
       );
@@ -569,6 +602,14 @@ export default function ChatRoom() {
     const trimmed = text.trim();
     if (!trimmed || !socket) return;
     if (frozen) return; // the other person stopped this chat
+    // Location is required to send.
+    if (!geoOk) {
+      const ok = await syncLocation();
+      if (!ok) {
+        window.alert('Location access is required to send messages. Please enable location for Pronto and try again.');
+        return;
+      }
+    }
     // Encryption enabled on this conversation but locked on this device — must
     // unlock before sending (otherwise we'd leak plaintext into an E2EE chat).
     if (encStatus === 'locked') {
@@ -642,6 +683,13 @@ export default function ChatRoom() {
   async function sendAttachment(blob: Blob, type: AttachmentType, ext: string, durationMs?: number) {
     if (!socket || !user) return;
     if (frozen) return; // the other person stopped this chat
+    if (!geoOk) {
+      const ok = await syncLocation();
+      if (!ok) {
+        window.alert('Location access is required to send. Please enable location for Pronto and try again.');
+        return;
+      }
+    }
     if (encStatus === 'locked') {
       setShowEncModal(true);
       return;
@@ -953,8 +1001,8 @@ export default function ChatRoom() {
         </div>
       </header>
 
-      {(myWeather || otherHasWeather) && (
-        <div className="relative z-10 flex items-center justify-center gap-3 border-b border-black/5 bg-white/40 px-3 py-1 text-[11px] text-slate-600 backdrop-blur dark:border-white/5 dark:bg-black/20 dark:text-slate-300">
+      {(myWeather || otherHasWeather || distanceKm != null) && (
+        <div className="relative z-10 flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5 border-b border-black/5 bg-white/40 px-3 py-1 text-[11px] text-slate-600 backdrop-blur dark:border-white/5 dark:bg-black/20 dark:text-slate-300">
           {myWeather && (
             <span>
               {weatherEmoji(myWeather.code)} You {myWeather.temp}°
@@ -963,8 +1011,14 @@ export default function ChatRoom() {
           {myWeather && otherHasWeather && <span className="opacity-40">•</span>}
           {otherHasWeather && (
             <span>
-              {weatherEmoji(otherUser!.weatherCode)} @{otherUser!.username} {Math.round(otherUser!.weatherTemp!)}°
+              {weatherEmoji(otherUser!.weatherCode)} {otherLabel} {Math.round(otherUser!.weatherTemp!)}°
             </span>
+          )}
+          {distanceKm != null && (
+            <>
+              {(myWeather || otherHasWeather) && <span className="opacity-40">•</span>}
+              <span>📍 {formatDistance(distanceKm)}</span>
+            </>
           )}
         </div>
       )}
@@ -1034,6 +1088,15 @@ export default function ChatRoom() {
           <div className="mb-2 flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 text-[12px] font-medium text-red-600 dark:bg-red-500/10 dark:text-red-400">
             🛑 @{otherUser?.username} stopped the chat. You can send once they message again.
           </div>
+        )}
+        {geoOk === false && !frozen && (
+          <button
+            type="button"
+            onClick={() => syncLocation()}
+            className="mb-2 flex w-full items-center gap-2 rounded-xl bg-sky-50 px-3 py-2 text-left text-[12px] font-medium text-sky-700 dark:bg-sky-500/10 dark:text-sky-300"
+          >
+            📍 Location is required to send messages — tap to enable.
+          </button>
         )}
         {stoppedBy === user?.id && (
           <div className="mb-2 flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-[12px] font-medium text-amber-600 dark:bg-amber-500/10 dark:text-amber-400">
