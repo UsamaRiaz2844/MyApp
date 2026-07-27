@@ -159,7 +159,9 @@ export default function MessageBubble({
             mine
               ? `rounded-br-sm ${mineClass}`
               : `rounded-bl-sm ${theirClass ?? 'bg-white text-slate-800 dark:bg-white/10 dark:text-slate-100'}`
-          } ${reactionList.length ? 'mb-2' : ''} ${highlighted ? 'ring-2 ring-brand-400' : ''}`}
+          } ${reactionList.length ? 'mb-2' : ''} ${highlighted ? 'ring-2 ring-brand-400' : ''} ${
+            (m.delayMs ?? 0) > 600000 ? 'ring-2 ring-red-500/70' : ''
+          }`}
         >
           {quoted && (
             <div
@@ -215,6 +217,7 @@ export default function MessageBubble({
               hasImage ? 'px-2.5 pb-1 pt-1' : 'mt-1'
             } ${mine ? mineMeta ?? 'text-white/80' : 'text-slate-400'}`}
           >
+            {(m.delayMs ?? 0) > 600000 && <span className="font-semibold text-red-400">⏰ late reply</span>}
             {m.editedAt && <span className="italic opacity-80">edited</span>}
             <span>{formatMessageTime(m.createdAt)}</span>
             {mine && <SeenTicks seen={!!m.seenAt} />}

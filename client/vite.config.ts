@@ -25,7 +25,7 @@ export default defineConfig({
         name: 'Pronto - Chat',
         short_name: 'Pronto',
         description: 'Simple, fast one-to-one chat. Be there. Be Pronto.',
-        theme_color: '#6366f1',
+        theme_color: '#0b0c10',
         background_color: '#0b0c10',
         display: 'standalone',
         orientation: 'portrait',

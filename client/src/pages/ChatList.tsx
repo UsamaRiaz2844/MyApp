@@ -242,6 +242,9 @@ export default function ChatList() {
                 />
               </button>
               {menuOpen && (
+                <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+              )}
+              {menuOpen && (
                 <div className="absolute right-0 top-12 z-20 w-44 overflow-hidden rounded-xl bg-white py-1 shadow-xl ring-1 ring-black/5 dark:bg-[#17181f] dark:ring-white/10">
                   <div className="border-b border-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 dark:border-white/5 dark:text-slate-200">
                     @{user?.username}
