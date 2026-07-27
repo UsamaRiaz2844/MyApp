@@ -18,6 +18,7 @@ import { loadMyActivity, saveMyActivity, loadMyDay, saveMyDay } from '../lib/act
 import MoodPicker from '../components/MoodPicker';
 import ActivityPicker from '../components/ActivityPicker';
 import DaySlider from '../components/DaySlider';
+import AppearanceSheet from '../components/AppearanceSheet';
 import type { ConversationSummary, OtherUser } from '../types';
 
 // Preview text for the chat list — encrypted last messages show a lock instead
@@ -48,6 +49,7 @@ export default function ChatList() {
   const [myActivity, setMyActivity] = useState<string | null>(() => loadMyActivity());
   const [showDay, setShowDay] = useState(false);
   const [myDay, setMyDay] = useState(() => loadMyDay());
+  const [showAppearance, setShowAppearance] = useState(false);
   const [notifPerm, setNotifPerm] = useState<NotificationPermission>(notifyPermission());
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressed = useRef(false);
@@ -280,6 +282,15 @@ export default function ChatList() {
                   <button
                     onClick={() => {
                       setMenuOpen(false);
+                      setShowAppearance(true);
+                    }}
+                    className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
+                  >
+                    🔤 Text &amp; font
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
                       avatarInputRef.current?.click();
                     }}
                     className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
@@ -482,6 +493,7 @@ export default function ChatList() {
           onClose={() => setShowDay(false)}
         />
       )}
+      {showAppearance && <AppearanceSheet onClose={() => setShowAppearance(false)} />}
     </div>
   );
 }

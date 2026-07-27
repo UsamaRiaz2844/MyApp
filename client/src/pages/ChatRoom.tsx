@@ -1445,7 +1445,8 @@ export default function ChatRoom() {
                     : 'Message…'
                 }
                 rows={1}
-                className="max-h-32 min-h-[44px] flex-1 resize-none rounded-3xl bg-transparent px-4 py-3 text-[15px] leading-snug outline-none placeholder:text-slate-400 disabled:opacity-50 dark:text-white"
+                style={{ fontSize: 'var(--msg-size, 15px)' }}
+                className="max-h-32 min-h-[44px] flex-1 resize-none rounded-3xl bg-transparent px-4 py-3 leading-snug outline-none placeholder:text-slate-400 disabled:opacity-50 dark:text-white"
               />
             </div>
             <button
