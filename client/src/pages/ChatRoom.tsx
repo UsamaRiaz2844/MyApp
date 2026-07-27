@@ -1350,11 +1350,6 @@ export default function ChatRoom() {
             🔒 Locked — tap to unlock and read/send encrypted messages
           </button>
         )}
-        {encStatus === 'ready' && (
-          <div className="mb-2 flex items-center gap-1 px-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-            🔒 End-to-end encrypted
-          </div>
-        )}
 
         {/* Tools — tucked behind the + button so the composer stays clean */}
         {showTools && !recording && (
@@ -1447,8 +1442,6 @@ export default function ChatRoom() {
                     ? 'Edit your message…'
                     : whisper
                     ? 'Whisper something…'
-                    : encStatus === 'ready'
-                    ? 'Type an encrypted message…'
                     : 'Message…'
                 }
                 rows={1}
