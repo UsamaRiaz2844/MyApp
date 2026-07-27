@@ -22,6 +22,7 @@ import { absTrack, canMoveToken, nextSteps, roleOf, LUDO_SAFE } from '../lib/lud
 import ChessBoard from './ChessBoard';
 import { applyMove, initialState, inCheck, statusFor, type ChessState, type Move as ChessMove } from '../lib/chess';
 import CricketField from './CricketField';
+import GoalScene from './GoalScene';
 
 interface Props {
   conversationId: string;
@@ -57,6 +58,8 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
             state = { ...init, white, black: white === me ? other : me, lastMove: null };
           } else if (type === 'cricket') {
             state = { batter: me, first: me, innings: 1, scores: { [me]: 0, [other]: 0 }, picks: {}, target: null, lastBall: null, done: false };
+          } else if (type === 'football') {
+            state = { shooter: me, goals: { [me]: 0, [other]: 0 }, taken: { [me]: 0, [other]: 0 }, picks: {}, last: null, done: false };
           } else state = { choices: {}, round: 1 };
           const turn = type === 'ttt' || type === 'c4' || type === 'guess' ? me : null;
           g = await api.createGame(conversationId, type, state, turn);
@@ -313,6 +316,49 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game, type, me, other, conversationId]);
 
+  function footballPick(zone: number) {
+    if (!game || game.winner) return;
+    const s = game.state;
+    if (s.done) return;
+    const picks = { ...(s.picks || {}) };
+    if (picks[me] != null) return;
+    picks[me] = zone;
+    const patch = { state: { ...s, picks } };
+    setGame({ ...game, ...patch });
+    api.updateGame(game.id, patch).catch(() => {});
+  }
+
+  // Football: resolve a penalty once both have chosen (one client, deterministic).
+  useEffect(() => {
+    if (type !== 'football' || !game || game.winner) return;
+    const s = game.state;
+    if (s.done) return;
+    const picks = s.picks || {};
+    if (picks[me] == null || picks[other] == null || me >= other) return;
+
+    const shooter = s.shooter as string;
+    const keeper = shooter === me ? other : me;
+    const aim = picks[shooter];
+    const dive = picks[keeper];
+    const goal = aim !== dive;
+    const goals = { ...s.goals };
+    const taken = { ...s.taken };
+    goals[shooter] = (goals[shooter] || 0) + (goal ? 1 : 0);
+    taken[shooter] = (taken[shooter] || 0) + 1;
+
+    const bothDone = (taken[me] || 0) >= 5 && (taken[other] || 0) >= 5 && taken[me] === taken[other];
+    const decided = bothDone && goals[me] !== goals[other];
+    const winner = decided ? (goals[me] > goals[other] ? me : other) : null;
+    const patch: any = {
+      state: { ...s, goals, taken, shooter: decided ? shooter : keeper, picks: {}, last: { aim, dive, goal }, done: decided },
+      winner,
+    };
+    setGame({ ...game, ...patch });
+    api.updateGame(game.id, patch).catch(() => {});
+    if (winner) api.bumpScore(conversationId, winner).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game, type, me, other, conversationId]);
+
   async function playAgain() {
     if (!game) return;
     let patch: any;
@@ -329,6 +375,8 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
       patch = { state: { ...init, white, black: white === me ? other : me, lastMove: null }, turn: null, winner: null };
     } else if (type === 'cricket') {
       patch = { state: { batter: me, first: me, innings: 1, scores: { [me]: 0, [other]: 0 }, picks: {}, target: null, lastBall: null, done: false }, winner: null };
+    } else if (type === 'football') {
+      patch = { state: { shooter: me, goals: { [me]: 0, [other]: 0 }, taken: { [me]: 0, [other]: 0 }, picks: {}, last: null, done: false }, winner: null };
     } else patch = { state: { choices: {}, round: (game.state?.round || 1) + 1 }, turn: null, winner: null };
     setGame({ ...game, ...patch });
     api.updateGame(game.id, patch).catch(() => {});
@@ -525,6 +573,69 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
                 <p className="text-xs text-white/50">{iBat ? 'Pick your shot — avoid the bowler’s number!' : 'Pick a ball — match to take the wicket!'}</p>
               )}
 
+              {winner && (
+                <button onClick={playAgain} className="rounded-2xl bg-white/15 px-7 py-3 text-sm font-bold active:scale-95">
+                  🔄 Play again
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Football: penalty shootout ------------------------------------------
+  if (type === 'football') {
+    const st = game?.state;
+    const iShoot = st?.shooter === me;
+    const iPicked = st?.picks?.[me] != null;
+    const myG = st?.goals?.[me] || 0;
+    const theirG = st?.goals?.[other] || 0;
+    const kicks = ((st?.taken?.[me] || 0) + (st?.taken?.[other] || 0)) + 1;
+    const result = winner === me ? 'You won! 🏆' : winner ? `${otherName} won 😤` : '';
+    const ZONES = ['↖️', '⬆️', '↗️', '↙️', '⬇️', '↘️'];
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col bg-gradient-to-b from-[#0c2a4a] via-[#123a63] to-[#1b5136] text-white">
+        <header className="safe-top flex items-center justify-between px-4 py-3">
+          <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-lg active:scale-90">
+            ←
+          </button>
+          <h2 className="text-base font-extrabold tracking-widest">⚽ PENALTIES</h2>
+          <div className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold tabular-nums">
+            You {myG} · {theirG}
+          </div>
+        </header>
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 px-3 pb-6">
+          {error ? (
+            <div className="mx-4 rounded-2xl bg-amber-500/15 p-4 text-center text-sm text-amber-200">{error}</div>
+          ) : loading || !game ? (
+            <p className="text-sm text-white/60">Setting up…</p>
+          ) : (
+            <>
+              <GoalScene last={st?.last} />
+              <p className="text-lg font-extrabold">
+                {winner ? result : iShoot ? '⚽ You shoot' : '🧤 You dive'}
+              </p>
+              {!winner &&
+                (iPicked ? (
+                  <p className="text-sm text-white/70">Waiting for {otherName}…</p>
+                ) : (
+                  <div className="grid grid-cols-3 gap-2">
+                    {ZONES.map((z, i) => (
+                      <button
+                        key={i}
+                        onClick={() => footballPick(i)}
+                        className="flex h-14 w-16 items-center justify-center rounded-2xl bg-white/90 text-2xl shadow active:scale-90"
+                      >
+                        {z}
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              {!winner && (
+                <p className="text-xs text-white/50">Kick #{kicks} · {iShoot ? 'aim for an open corner' : 'guess where they’ll shoot'}</p>
+              )}
               {winner && (
                 <button onClick={playAgain} className="rounded-2xl bg-white/15 px-7 py-3 text-sm font-bold active:scale-95">
                   🔄 Play again
