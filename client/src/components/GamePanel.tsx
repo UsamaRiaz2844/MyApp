@@ -16,6 +16,8 @@ import {
   type GameType,
   type Rps,
 } from '../lib/games';
+import LudoBoard from './LudoBoard';
+import { DICE, absTrack, canMoveToken, nextSteps, roleOf, LUDO_SAFE } from '../lib/ludo';
 
 interface Props {
   conversationId: string;
@@ -44,6 +46,7 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
           else if (type === 'c4') state = { board: Array(C4_ROWS * C4_COLS).fill(null) };
           else if (type === 'guess') state = { secret: newSecret(), low: 1, high: 100, guesses: [] };
           else if (type === 'trivia') state = (await fetchTrivia()) || { question: '', options: [], correct: 0, answers: {} };
+          else if (type === 'ludo') state = { tokens: { [me]: [-1, -1, -1, -1], [other]: [-1, -1, -1, -1] }, turn: me, die: null, phase: 'roll' };
           else state = { choices: {}, round: 1 };
           const turn = type === 'ttt' || type === 'c4' || type === 'guess' ? me : null;
           g = await api.createGame(conversationId, type, state, turn);
@@ -182,6 +185,54 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
     }
   }, [game, type, me, other, conversationId]);
 
+  function ludoRoll() {
+    if (!game || game.winner) return;
+    const s = game.state || {};
+    if (s.turn !== me || s.phase !== 'roll') return;
+    const d = 1 + Math.floor(Math.random() * 6);
+    const mine: number[] = s.tokens?.[me] || [];
+    const movable = mine.some((st) => canMoveToken(st, d));
+    const patch = movable
+      ? { state: { ...s, die: d, phase: 'move' } }
+      : { state: { ...s, die: d, phase: 'roll', turn: other } };
+    setGame({ ...game, ...patch });
+    api.updateGame(game.id, patch).catch(() => {});
+  }
+
+  function ludoMove(i: number) {
+    if (!game || game.winner) return;
+    const s = game.state || {};
+    if (s.turn !== me || s.phase !== 'move') return;
+    const d = s.die as number;
+    const mine = [...(s.tokens[me] as number[])];
+    if (!canMoveToken(mine[i], d)) return;
+    const role = roleOf(me, me, other);
+    mine[i] = nextSteps(mine[i], d);
+    // capture opponent tokens on the same (non-safe) track cell
+    let captured = false;
+    const opp = [...(s.tokens[other] as number[])];
+    const oppRole = roleOf(other, me, other);
+    const landed = absTrack(role, mine[i]);
+    if (landed != null && !LUDO_SAFE.has(landed)) {
+      for (let k = 0; k < 4; k++) {
+        if (absTrack(oppRole, opp[k]) === landed) {
+          opp[k] = -1;
+          captured = true;
+        }
+      }
+    }
+    const tokens = { ...s.tokens, [me]: mine, [other]: opp };
+    const won = mine.every((x) => x === 56);
+    const again = d === 6 || captured;
+    const patch: any = {
+      state: { ...s, tokens, die: null, phase: 'roll', turn: won ? me : again ? me : other },
+      winner: won ? me : null,
+    };
+    setGame({ ...game, ...patch });
+    api.updateGame(game.id, patch).catch(() => {});
+    if (won) api.bumpScore(conversationId, me).catch(() => {});
+  }
+
   async function playAgain() {
     if (!game) return;
     let patch: any;
@@ -190,6 +241,8 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
     else if (type === 'guess') patch = { state: { secret: newSecret(), low: 1, high: 100, guesses: [] }, turn: me, winner: null };
     else if (type === 'trivia')
       patch = { state: (await fetchTrivia()) || { question: '', options: [], correct: 0, answers: {} }, turn: null, winner: null };
+    else if (type === 'ludo')
+      patch = { state: { tokens: { [me]: [-1, -1, -1, -1], [other]: [-1, -1, -1, -1] }, turn: me, die: null, phase: 'roll' }, turn: me, winner: null };
     else patch = { state: { choices: {}, round: (game.state?.round || 1) + 1 }, turn: null, winner: null };
     setGame({ ...game, ...patch });
     api.updateGame(game.id, patch).catch(() => {});
@@ -246,6 +299,31 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
           <GuessBoard game={game} me={me} winner={winner} onGuess={guessPlay} />
         ) : type === 'trivia' ? (
           <TriviaBoard game={game} me={me} winner={winner} onAnswer={triviaAnswer} />
+        ) : type === 'ludo' ? (
+          <div>
+            <LudoBoard game={game} me={me} other={other} onMove={ludoMove} />
+            <div className="mt-3 flex items-center justify-center gap-3 text-sm">
+              <span className="font-semibold text-slate-600 dark:text-slate-300">
+                You: {roleOf(me, me, other) === 'A' ? '🔴' : '🟢'}
+              </span>
+              {!winner &&
+                (game.state?.turn === me ? (
+                  game.state?.phase === 'roll' ? (
+                    <button onClick={ludoRoll} className="rounded-xl bg-brand-500 px-5 py-2 font-semibold text-white active:scale-95">
+                      🎲 Roll
+                    </button>
+                  ) : (
+                    <span className="font-semibold text-brand-600 dark:text-brand-300">
+                      Rolled {DICE[game.state.die]} {game.state.die} — tap a token
+                    </span>
+                  )
+                ) : (
+                  <span className="text-slate-500 dark:text-slate-400">
+                    {otherName}'s turn {game.state?.die ? `(rolled ${game.state.die})` : ''}
+                  </span>
+                ))}
+            </div>
+          </div>
         ) : (
           <RpsBoard game={game} me={me} other={other} winner={winner} onPick={rpsPick} />
         )}
@@ -259,7 +337,7 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
                   🔄 Play again
                 </button>
               </>
-            ) : type === 'ttt' || type === 'c4' || type === 'guess' ? (
+            ) : type === 'ludo' ? null : type === 'ttt' || type === 'c4' || type === 'guess' ? (
               <p className="text-sm text-slate-500 dark:text-slate-400">
                 {game.turn === me ? 'Your turn' : `${otherName}'s turn…`}
               </p>
