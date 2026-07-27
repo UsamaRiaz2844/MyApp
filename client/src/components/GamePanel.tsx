@@ -21,6 +21,7 @@ import DiceCube from './DiceCube';
 import { absTrack, canMoveToken, nextSteps, roleOf, LUDO_SAFE } from '../lib/ludo';
 import ChessBoard from './ChessBoard';
 import { applyMove, initialState, inCheck, statusFor, type ChessState, type Move as ChessMove } from '../lib/chess';
+import CricketField from './CricketField';
 
 interface Props {
   conversationId: string;
@@ -54,6 +55,8 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
             const init = initialState();
             const white = me < other ? me : other;
             state = { ...init, white, black: white === me ? other : me, lastMove: null };
+          } else if (type === 'cricket') {
+            state = { batter: me, first: me, innings: 1, scores: { [me]: 0, [other]: 0 }, picks: {}, target: null, lastBall: null, done: false };
           } else state = { choices: {}, round: 1 };
           const turn = type === 'ttt' || type === 'c4' || type === 'guess' ? me : null;
           g = await api.createGame(conversationId, type, state, turn);
@@ -258,6 +261,58 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
     if (winner === me) api.bumpScore(conversationId, me).catch(() => {});
   }
 
+  function cricketPick(n: number) {
+    if (!game || game.winner) return;
+    const s = game.state;
+    if (s.done) return;
+    const picks = { ...(s.picks || {}) };
+    if (picks[me] != null) return;
+    picks[me] = n;
+    const patch = { state: { ...s, picks } };
+    setGame({ ...game, ...patch });
+    api.updateGame(game.id, patch).catch(() => {});
+  }
+
+  // Cricket: once both have picked a number, one client resolves the ball.
+  useEffect(() => {
+    if (type !== 'cricket' || !game || game.winner) return;
+    const s = game.state;
+    if (s.done) return;
+    const picks = s.picks || {};
+    if (picks[me] == null || picks[other] == null || me >= other) return;
+
+    const batter = s.batter as string;
+    const bowler = batter === me ? other : me;
+    const bp = picks[batter];
+    const op = picks[bowler];
+    const scores = { ...s.scores };
+    let patch: any;
+
+    if (bp === op) {
+      // OUT
+      if (s.innings === 1) {
+        patch = { state: { ...s, picks: {}, innings: 2, batter: bowler, target: (scores[batter] || 0) + 1, lastBall: { text: 'OUT! 🙌', out: true } } };
+      } else {
+        // innings 2 wicket → compare the two batters' totals
+        const p1 = s.first;
+        const p2 = s.batter; // the second (current) batter
+        const w = (scores[p1] || 0) === (scores[p2] || 0) ? 'draw' : (scores[p1] || 0) > (scores[p2] || 0) ? p1 : p2;
+        patch = { state: { ...s, picks: {}, done: true, lastBall: { text: 'OUT! 🙌', out: true } }, winner: w };
+      }
+    } else {
+      scores[batter] = (scores[batter] || 0) + bp;
+      const chaseWon = s.innings === 2 && s.target != null && scores[batter] >= s.target;
+      const text = bp === 6 ? 'SIX! 💥' : bp === 4 ? 'FOUR! 🏏' : `${bp} run${bp > 1 ? 's' : ''}`;
+      patch = chaseWon
+        ? { state: { ...s, scores, picks: {}, done: true, lastBall: { text } }, winner: batter }
+        : { state: { ...s, scores, picks: {}, lastBall: { text } } };
+    }
+    setGame({ ...game, ...patch });
+    api.updateGame(game.id, patch).catch(() => {});
+    if (patch.winner && patch.winner !== 'draw') api.bumpScore(conversationId, patch.winner).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game, type, me, other, conversationId]);
+
   async function playAgain() {
     if (!game) return;
     let patch: any;
@@ -272,6 +327,8 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
       const init = initialState();
       const white = me < other ? me : other;
       patch = { state: { ...init, white, black: white === me ? other : me, lastMove: null }, turn: null, winner: null };
+    } else if (type === 'cricket') {
+      patch = { state: { batter: me, first: me, innings: 1, scores: { [me]: 0, [other]: 0 }, picks: {}, target: null, lastBall: null, done: false }, winner: null };
     } else patch = { state: { choices: {}, round: (game.state?.round || 1) + 1 }, turn: null, winner: null };
     setGame({ ...game, ...patch });
     api.updateGame(game.id, patch).catch(() => {});
@@ -401,6 +458,76 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
               {winner && (
                 <button onClick={playAgain} className="rounded-2xl bg-white/15 px-7 py-3 text-sm font-bold active:scale-95">
                   🔄 Rematch
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Cricket: full-screen ------------------------------------------------
+  if (type === 'cricket') {
+    const st = game?.state;
+    const iBat = st?.batter === me;
+    const iPicked = st?.picks?.[me] != null;
+    const myRuns = st?.scores?.[me] || 0;
+    const theirRuns = st?.scores?.[other] || 0;
+    const result =
+      winner === 'draw' ? "It's a tie 🤝" : winner === me ? 'You won! 🎉' : winner ? `${otherName} won 😤` : '';
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col bg-gradient-to-b from-[#0f3d24] via-[#14532d] to-[#1b6b3a] text-white">
+        <header className="safe-top flex items-center justify-between px-4 py-3">
+          <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-lg active:scale-90">
+            ←
+          </button>
+          <h2 className="text-base font-extrabold tracking-widest">🏏 CRICKET</h2>
+          <div className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold tabular-nums">
+            You {myRuns} · {theirRuns}
+          </div>
+        </header>
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 px-3 pb-6">
+          {error ? (
+            <div className="mx-4 rounded-2xl bg-amber-500/15 p-4 text-center text-sm text-amber-200">{error}</div>
+          ) : loading || !game ? (
+            <p className="text-sm text-white/60">Setting up…</p>
+          ) : (
+            <>
+              <CricketField batting={iBat} lastText={st?.lastBall?.text} />
+              <div className="text-center">
+                <p className="text-xs font-medium text-white/60">
+                  Innings {st?.innings}
+                  {st?.innings === 2 && st?.target != null ? ` · Target ${st.target}` : ''}
+                </p>
+                <p className="text-lg font-extrabold">
+                  {winner ? result : iBat ? '🏏 You are batting' : '🎯 You are bowling'}
+                </p>
+              </div>
+
+              {!winner &&
+                (iPicked ? (
+                  <p className="text-sm text-white/70">Waiting for {otherName}…</p>
+                ) : (
+                  <div className="grid grid-cols-6 gap-2">
+                    {[1, 2, 3, 4, 5, 6].map((n) => (
+                      <button
+                        key={n}
+                        onClick={() => cricketPick(n)}
+                        className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-lg font-extrabold text-slate-900 shadow active:scale-90"
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              {!winner && (
+                <p className="text-xs text-white/50">{iBat ? 'Pick your shot — avoid the bowler’s number!' : 'Pick a ball — match to take the wicket!'}</p>
+              )}
+
+              {winner && (
+                <button onClick={playAgain} className="rounded-2xl bg-white/15 px-7 py-3 text-sm font-bold active:scale-95">
+                  🔄 Play again
                 </button>
               )}
             </>

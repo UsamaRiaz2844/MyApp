@@ -1,10 +1,11 @@
 // Game rules for the in-chat mini-games. State is stored in the `games` table
 // and synced over Realtime; these helpers are pure logic.
 
-export type GameType = 'ttt' | 'rps' | 'c4' | 'guess' | 'trivia' | 'ludo' | 'chess';
+export type GameType = 'ttt' | 'rps' | 'c4' | 'guess' | 'trivia' | 'ludo' | 'chess' | 'cricket';
 
 export const GAME_META: Record<GameType, { label: string; icon: string }> = {
   chess: { label: 'Chess', icon: '♛' },
+  cricket: { label: 'Cricket', icon: '🏏' },
   ludo: { label: 'Ludo', icon: '🎲' },
   ttt: { label: 'Tic-Tac-Toe', icon: '⭕' },
   c4: { label: 'Connect 4', icon: '🔴' },
