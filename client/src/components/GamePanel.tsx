@@ -17,7 +17,8 @@ import {
   type Rps,
 } from '../lib/games';
 import LudoBoard from './LudoBoard';
-import { DICE, absTrack, canMoveToken, nextSteps, roleOf, LUDO_SAFE } from '../lib/ludo';
+import DiceCube from './DiceCube';
+import { absTrack, canMoveToken, nextSteps, roleOf, LUDO_SAFE } from '../lib/ludo';
 
 interface Props {
   conversationId: string;
@@ -260,6 +261,71 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
     resultText = winner === 'draw' ? "It's a draw 🤝" : winner === me ? 'You win! 🎉' : `${otherName} wins 😤`;
   }
 
+  // ---- Ludo gets its own full-screen board ---------------------------------
+  if (type === 'ludo') {
+    const st = game?.state;
+    const roleMe = roleOf(me, me, other);
+    const aPid = roleMe === 'A' ? me : other;
+    const bPid = roleMe === 'A' ? other : me;
+    const myTurn = st?.turn === me && !winner;
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col bg-gradient-to-b from-[#241633] via-[#31204d] to-[#3a2358] text-white">
+        <header className="safe-top flex items-center justify-between px-4 py-3">
+          <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-lg active:scale-90">
+            ←
+          </button>
+          <h2 className="text-base font-extrabold tracking-wide">🎲 LUDO</h2>
+          <div className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold tabular-nums">
+            🔴 {scores[aPid] || 0} · {scores[bPid] || 0} 🟢
+          </div>
+        </header>
+
+        <div className="flex flex-1 flex-col items-center justify-center gap-6 px-3 pb-6">
+          {error ? (
+            <div className="mx-4 rounded-2xl bg-amber-500/15 p-4 text-center text-sm text-amber-200">{error}</div>
+          ) : loading || !game ? (
+            <p className="text-sm text-white/60">Setting up the board…</p>
+          ) : (
+            <>
+              <LudoBoard game={game} me={me} other={other} onMove={ludoMove} />
+
+              <div className="flex items-center gap-5">
+                <DiceCube value={st?.die ?? null} spin={`${st?.die}-${st?.turn}-${st?.phase}`} />
+                <div className="text-center">
+                  <p className="mb-1 text-xs font-medium text-white/55">
+                    You are {roleMe === 'A' ? '🔴 Red' : '🟢 Green'}
+                  </p>
+                  {winner ? (
+                    <p className="text-lg font-extrabold">{resultText}</p>
+                  ) : myTurn ? (
+                    st?.phase === 'roll' ? (
+                      <button
+                        onClick={ludoRoll}
+                        className="rounded-2xl bg-white px-7 py-3 text-base font-extrabold text-slate-900 shadow-lg active:scale-95"
+                      >
+                        Roll dice
+                      </button>
+                    ) : (
+                      <p className="text-sm font-bold text-amber-300">Tap a glowing token</p>
+                    )
+                  ) : (
+                    <p className="text-sm text-white/65">{otherName} is playing…</p>
+                  )}
+                </div>
+              </div>
+
+              {winner && (
+                <button onClick={playAgain} className="rounded-2xl bg-white/15 px-7 py-3 text-sm font-bold active:scale-95">
+                  🔄 Play again
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
       <div
@@ -299,31 +365,6 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
           <GuessBoard game={game} me={me} winner={winner} onGuess={guessPlay} />
         ) : type === 'trivia' ? (
           <TriviaBoard game={game} me={me} winner={winner} onAnswer={triviaAnswer} />
-        ) : type === 'ludo' ? (
-          <div>
-            <LudoBoard game={game} me={me} other={other} onMove={ludoMove} />
-            <div className="mt-3 flex items-center justify-center gap-3 text-sm">
-              <span className="font-semibold text-slate-600 dark:text-slate-300">
-                You: {roleOf(me, me, other) === 'A' ? '🔴' : '🟢'}
-              </span>
-              {!winner &&
-                (game.state?.turn === me ? (
-                  game.state?.phase === 'roll' ? (
-                    <button onClick={ludoRoll} className="rounded-xl bg-brand-500 px-5 py-2 font-semibold text-white active:scale-95">
-                      🎲 Roll
-                    </button>
-                  ) : (
-                    <span className="font-semibold text-brand-600 dark:text-brand-300">
-                      Rolled {DICE[game.state.die]} {game.state.die} — tap a token
-                    </span>
-                  )
-                ) : (
-                  <span className="text-slate-500 dark:text-slate-400">
-                    {otherName}'s turn {game.state?.die ? `(rolled ${game.state.die})` : ''}
-                  </span>
-                ))}
-            </div>
-          </div>
         ) : (
           <RpsBoard game={game} me={me} other={other} winner={winner} onPick={rpsPick} />
         )}
@@ -337,7 +378,7 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
                   🔄 Play again
                 </button>
               </>
-            ) : type === 'ludo' ? null : type === 'ttt' || type === 'c4' || type === 'guess' ? (
+            ) : type === 'ttt' || type === 'c4' || type === 'guess' ? (
               <p className="text-sm text-slate-500 dark:text-slate-400">
                 {game.turn === me ? 'Your turn' : `${otherName}'s turn…`}
               </p>

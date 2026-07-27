@@ -137,6 +137,13 @@ export default {
           '30%': { opacity: '0.7' },
           '100%': { opacity: '0', transform: 'translateY(-48px) scale(1.6)' },
         },
+        'dice-roll': {
+          '0%': { transform: 'rotate(0deg) scale(1)' },
+          '25%': { transform: 'rotate(-18deg) scale(1.12)' },
+          '50%': { transform: 'rotate(16deg) scale(1.12)' },
+          '75%': { transform: 'rotate(-8deg) scale(1.06)' },
+          '100%': { transform: 'rotate(0deg) scale(1)' },
+        },
       },
       animation: {
         'pop-in': 'pop-in 0.18s ease-out',
@@ -161,6 +168,7 @@ export default {
         'snow-fall': 'snow-fall 4s linear infinite',
         twinkle: 'twinkle 3s ease-in-out infinite',
         'steam-rise': 'steam-rise 3.2s ease-in-out infinite',
+        'dice-roll': 'dice-roll 0.5s ease-in-out',
       },
     },
   },
