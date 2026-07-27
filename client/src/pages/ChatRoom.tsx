@@ -80,6 +80,14 @@ export default function ChatRoom() {
   const [recording, setRecording] = useState(false);
   const [recordMs, setRecordMs] = useState(0);
   const [showEmoji, setShowEmoji] = useState(false);
+  const [showTools, setShowTools] = useState(false);
+  const [hideCat, setHideCat] = useState(() => {
+    try {
+      return localStorage.getItem('pronto_hide_cat') === '1';
+    } catch {
+      return false;
+    }
+  });
 
   // --- encryption -----------------------------------------------------------
   const crypto = useConversationCrypto(conversationId);
@@ -169,6 +177,7 @@ export default function ChatRoom() {
   const fxCounter = useRef(0);
   const [presenceTick, setPresenceTick] = useState(0); // re-evaluates online freshness
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const recordStartRef = useRef(0);
@@ -205,6 +214,36 @@ export default function ChatRoom() {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  // When the on-screen keyboard opens/resizes the viewport, keep the latest
+  // messages visible (scroll to bottom).
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => {
+      requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ block: 'end' }));
+    };
+    vv.addEventListener('resize', onResize);
+    return () => vv.removeEventListener('resize', onResize);
+  }, []);
+
+  // Intercept the Android/browser back button to close open panels (emoji /
+  // tools) instead of leaving the chat.
+  const panelOpen = showEmoji || showTools;
+  useEffect(() => {
+    if (!panelOpen) return;
+    window.history.pushState({ pronto: 'panel' }, '');
+    const onPop = () => {
+      setShowEmoji(false);
+      setShowTools(false);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      // if the panel was closed by other means, consume the state we pushed
+      if (window.history.state?.pronto === 'panel') window.history.back();
+    };
+  }, [panelOpen]);
 
   // Tell the notifier which chat is on screen so it won't notify for this one.
   useEffect(() => {
@@ -713,6 +752,9 @@ export default function ChatRoom() {
     setWhisper(false);
     setReplyTo(null);
     socket.emit('typing', { conversationId, isTyping: false, text: '' });
+    // Keep the keyboard open (WhatsApp-style) — refocus the input after sending.
+    textareaRef.current?.focus();
+    requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ block: 'end' }));
 
     socket.emit(
       'message:send',
@@ -1008,7 +1050,7 @@ export default function ChatRoom() {
       ) : (
         <div className="chat-texture pointer-events-none absolute inset-0 z-0" />
       )}
-      <PetCat mood={catMoodState} level={petLvl} />
+      {!hideCat && <PetCat mood={catMoodState} level={petLvl} />}
 
       <header className="safe-top sticky top-0 z-30 border-b border-black/5 bg-white/70 backdrop-blur dark:border-white/5 dark:bg-black/30">
         <div className="flex items-center gap-2 px-2 py-2.5">
@@ -1082,6 +1124,7 @@ export default function ChatRoom() {
             >
               ⋮
             </button>
+            {menuOpen && <div className="fixed inset-0 z-30" onClick={() => setMenuOpen(false)} />}
             {menuOpen && (
               <div className="absolute right-0 top-11 z-40 w-44 overflow-hidden rounded-xl bg-white py-1 shadow-xl ring-1 ring-black/5 dark:bg-[#17181f] dark:ring-white/10">
                 <button
@@ -1098,6 +1141,23 @@ export default function ChatRoom() {
                   className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
                 >
                   🎨 Chat theme
+                </button>
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setHideCat((v) => {
+                      const nv = !v;
+                      try {
+                        localStorage.setItem('pronto_hide_cat', nv ? '1' : '0');
+                      } catch {
+                        /* ignore */
+                      }
+                      return nv;
+                    });
+                  }}
+                  className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
+                >
+                  {hideCat ? '🐱 Show cat' : '🙈 Hide cat'}
                 </button>
                 <button
                   onClick={deleteChat}
@@ -1214,8 +1274,12 @@ export default function ChatRoom() {
 
       {otherTyping && text.trim().length > 0 && <TypingSparks />}
 
+      {(showEmoji || showTools) && (
+        <div className="fixed inset-0 z-[5]" onClick={() => { setShowEmoji(false); setShowTools(false); }} />
+      )}
+
       <form onSubmit={sendMessage} className="safe-bottom relative z-10 px-2 pb-3 pt-2">
-        <div className="rounded-3xl border border-black/10 bg-white/80 p-2 shadow-lg backdrop-blur dark:border-white/10 dark:bg-white/[0.06]">
+        <div className="rounded-3xl bg-white/45 p-2 backdrop-blur-md dark:bg-black/25">
         {frozen && (
           <div className="mb-2 flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 text-[12px] font-medium text-red-600 dark:bg-red-500/10 dark:text-red-400">
             🛑 @{otherUser?.username} stopped the chat. You can send once they message again.
@@ -1292,84 +1356,34 @@ export default function ChatRoom() {
           </div>
         )}
 
-        {/* Row 1 — quick actions & attachments, all on one line */}
-        <div className="no-scrollbar mb-2 flex items-center gap-1.5 overflow-x-auto">
-          <button
-            type="button"
-            onClick={() => setShowEmoji((v) => !v)}
-            disabled={frozen}
-            title="Emoji"
-            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg transition active:scale-90 disabled:opacity-40 ${
-              showEmoji ? 'bg-brand-500 text-white' : 'bg-yellow-50 dark:bg-yellow-500/10'
-            }`}
-          >
-            😊
-          </button>
-          <button
-            type="button"
-            onClick={pickImage}
-            disabled={uploading || recording || frozen}
-            title="Send photo"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sky-50 text-lg transition active:scale-90 disabled:opacity-40 dark:bg-sky-500/10"
-          >
-            🖼️
-          </button>
-          <button
-            type="button"
-            onClick={startRecording}
-            disabled={uploading || recording || frozen}
-            title="Record voice note"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-50 text-lg transition active:scale-90 disabled:opacity-40 dark:bg-violet-500/10"
-          >
-            🎤
-          </button>
-          <span className="mx-0.5 h-6 w-px shrink-0 bg-black/10 dark:bg-white/10" />
-          <button
-            type="button"
-            onClick={sendNudge}
-            title="Nudge"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-pink-50 text-lg transition active:scale-90 dark:bg-pink-500/10"
-          >
-            💗
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowFun(true)}
-            title="Fun & games"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-lg transition active:scale-90 dark:bg-indigo-500/10"
-          >
-            🎮
-          </button>
-          <button
-            type="button"
-            onClick={() => playEffect('hearts')}
-            title="Send hearts"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-50 text-lg transition active:scale-90 dark:bg-rose-500/10"
-          >
-            ❤️
-          </button>
-          <button
-            type="button"
-            onClick={() => playEffect('confetti')}
-            title="Confetti"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-50 text-lg transition active:scale-90 dark:bg-amber-500/10"
-          >
-            🎉
-          </button>
-          <button
-            type="button"
-            onClick={() => setWhisper((v) => !v)}
-            title="Whisper"
-            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg transition active:scale-90 ${
-              whisper ? 'bg-brand-500 text-white' : 'bg-slate-100 dark:bg-white/10'
-            }`}
-          >
-            🫧
-          </button>
-          {uploading && <span className="ml-1 shrink-0 text-xs text-slate-400">Uploading…</span>}
-        </div>
+        {/* Tools — tucked behind the + button so the composer stays clean */}
+        {showTools && !recording && (
+          <div className="no-scrollbar mb-2 flex animate-pop-in items-center gap-1.5 overflow-x-auto">
+            {[
+              { k: 'emoji', e: '😊', on: () => { setShowEmoji((v) => !v); setShowTools(false); }, bg: 'bg-yellow-50 dark:bg-yellow-500/10' },
+              { k: 'img', e: '🖼️', on: pickImage, bg: 'bg-sky-50 dark:bg-sky-500/10' },
+              { k: 'mic', e: '🎤', on: startRecording, bg: 'bg-violet-50 dark:bg-violet-500/10' },
+              { k: 'nudge', e: '💗', on: sendNudge, bg: 'bg-pink-50 dark:bg-pink-500/10' },
+              { k: 'fun', e: '🎮', on: () => setShowFun(true), bg: 'bg-indigo-50 dark:bg-indigo-500/10' },
+              { k: 'hearts', e: '❤️', on: () => playEffect('hearts'), bg: 'bg-rose-50 dark:bg-rose-500/10' },
+              { k: 'confetti', e: '🎉', on: () => playEffect('confetti'), bg: 'bg-amber-50 dark:bg-amber-500/10' },
+              { k: 'whisper', e: '🫧', on: () => setWhisper((v) => !v), bg: whisper ? 'bg-brand-500' : 'bg-slate-100 dark:bg-white/10' },
+            ].map((b) => (
+              <button
+                key={b.k}
+                type="button"
+                onClick={b.on}
+                disabled={frozen || ((b.k === 'img' || b.k === 'mic') && (uploading || recording))}
+                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg transition active:scale-90 disabled:opacity-40 ${b.bg}`}
+              >
+                {b.e}
+              </button>
+            ))}
+            {uploading && <span className="ml-1 shrink-0 text-xs text-slate-400">Uploading…</span>}
+          </div>
+        )}
 
-        {/* Row 2 — text input + send, or the recording bar */}
+        {/* Input row — + toggle, bordered text box, send */}
         {recording ? (
           <div className="flex items-center gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 dark:border-red-500/20 dark:bg-red-500/10">
             <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
@@ -1398,34 +1412,54 @@ export default function ChatRoom() {
           </div>
         ) : (
           <div className="flex items-end gap-2">
-            <textarea
-              value={text}
-              onChange={(e) => handleTextChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  sendMessage(e as any);
-                }
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                setShowTools((v) => !v);
+                setShowEmoji(false);
               }}
               disabled={frozen}
-              placeholder={
-                frozen
-                  ? 'Chat stopped…'
-                  : editing
-                  ? 'Edit your message…'
-                  : whisper
-                  ? 'Whisper something…'
-                  : encStatus === 'ready'
-                  ? 'Type an encrypted message…'
-                  : 'Type a message…'
-              }
-              rows={1}
-              className="max-h-28 flex-1 resize-none rounded-2xl bg-transparent px-3 py-2.5 text-sm outline-none placeholder:text-slate-400 disabled:opacity-50 dark:text-white"
-            />
+              title="More"
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-2xl leading-none transition active:scale-90 disabled:opacity-40 ${
+                showTools ? 'bg-brand-500 text-white' : 'bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-200'
+              }`}
+            >
+              {showTools ? '×' : '＋'}
+            </button>
+            <div className="flex flex-1 items-end rounded-3xl border border-black/15 bg-white shadow-sm transition focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-400/30 dark:border-white/15 dark:bg-white/[0.08]">
+              <textarea
+                ref={textareaRef}
+                value={text}
+                onChange={(e) => handleTextChange(e.target.value)}
+                onFocus={() => requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ block: 'end' }))}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage(e as any);
+                  }
+                }}
+                disabled={frozen}
+                placeholder={
+                  frozen
+                    ? 'Chat stopped…'
+                    : editing
+                    ? 'Edit your message…'
+                    : whisper
+                    ? 'Whisper something…'
+                    : encStatus === 'ready'
+                    ? 'Type an encrypted message…'
+                    : 'Message…'
+                }
+                rows={1}
+                className="max-h-32 min-h-[44px] flex-1 resize-none rounded-3xl bg-transparent px-4 py-3 text-[15px] leading-snug outline-none placeholder:text-slate-400 disabled:opacity-50 dark:text-white"
+              />
+            </div>
             <button
               type="submit"
+              onMouseDown={(e) => e.preventDefault()}
               disabled={!text.trim() || frozen}
-              className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full shadow-lg transition active:scale-90 disabled:opacity-40 ${theme.accent}`}
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg shadow-lg transition active:scale-90 disabled:opacity-40 ${theme.accent}`}
             >
               {editing ? '✓' : '➤'}
             </button>

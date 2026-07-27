@@ -21,6 +21,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     if (theme === 'dark') root.classList.add('dark');
     else root.classList.remove('dark');
     localStorage.setItem('pronto_theme', theme);
+    // Keep the system status/navigation bars in step with the app theme.
+    const color = theme === 'dark' ? '#0b0c10' : '#f8fafc';
+    let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.name = 'theme-color';
+      document.head.appendChild(meta);
+    }
+    meta.content = color;
   }, [theme]);
 
   const toggleTheme = () => setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
