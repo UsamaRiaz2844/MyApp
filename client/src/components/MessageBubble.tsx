@@ -204,7 +204,8 @@ export default function MessageBubble({
 
           {body && (
             <p
-              className={`whitespace-pre-wrap break-words ${hasImage ? 'px-2.5 pt-1.5' : hasMedia ? 'mt-1.5' : ''} ${
+              style={{ fontSize: 'var(--msg-size, 15px)' }}
+              className={`whitespace-pre-wrap break-words leading-snug ${hasImage ? 'px-2.5 pt-1.5' : hasMedia ? 'mt-1.5' : ''} ${
                 isBlurredWhisper ? 'whisper-hidden' : 'whisper-shown'
               }`}
             >

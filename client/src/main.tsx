@@ -8,7 +8,10 @@ import { SocketProvider } from './context/SocketContext';
 import { LockProvider } from './context/LockContext';
 import ScreenLock from './components/ScreenLock';
 import PrivacyScreen from './components/PrivacyScreen';
+import { applyAppearance } from './lib/appearance';
 import './index.css';
+
+applyAppearance();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
