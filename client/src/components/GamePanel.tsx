@@ -19,6 +19,8 @@ import {
 import LudoBoard from './LudoBoard';
 import DiceCube from './DiceCube';
 import { absTrack, canMoveToken, nextSteps, roleOf, LUDO_SAFE } from '../lib/ludo';
+import ChessBoard from './ChessBoard';
+import { applyMove, initialState, inCheck, statusFor, type ChessState, type Move as ChessMove } from '../lib/chess';
 
 interface Props {
   conversationId: string;
@@ -48,7 +50,11 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
           else if (type === 'guess') state = { secret: newSecret(), low: 1, high: 100, guesses: [] };
           else if (type === 'trivia') state = (await fetchTrivia()) || { question: '', options: [], correct: 0, answers: {} };
           else if (type === 'ludo') state = { tokens: { [me]: [-1, -1, -1, -1], [other]: [-1, -1, -1, -1] }, turn: me, die: null, phase: 'roll' };
-          else state = { choices: {}, round: 1 };
+          else if (type === 'chess') {
+            const init = initialState();
+            const white = me < other ? me : other;
+            state = { ...init, white, black: white === me ? other : me, lastMove: null };
+          } else state = { choices: {}, round: 1 };
           const turn = type === 'ttt' || type === 'c4' || type === 'guess' ? me : null;
           g = await api.createGame(conversationId, type, state, turn);
         }
@@ -234,6 +240,24 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
     if (won) api.bumpScore(conversationId, me).catch(() => {});
   }
 
+  function chessMove(m: ChessMove) {
+    if (!game || game.winner) return;
+    const s = game.state;
+    const myColor = s.white === me ? 'w' : 'b';
+    if (s.turn !== myColor) return;
+    const cs: ChessState = { board: s.board, turn: s.turn, castling: s.castling, ep: s.ep };
+    const next = applyMove(cs, m);
+    const st = statusFor(next, next.turn); // opponent to move
+    const winner = st === 'checkmate' ? me : st === 'stalemate' ? 'draw' : null;
+    const patch: any = {
+      state: { ...s, board: next.board, turn: next.turn, castling: next.castling, ep: next.ep, lastMove: [m.from, m.to], status: st },
+      winner,
+    };
+    setGame({ ...game, ...patch });
+    api.updateGame(game.id, patch).catch(() => {});
+    if (winner === me) api.bumpScore(conversationId, me).catch(() => {});
+  }
+
   async function playAgain() {
     if (!game) return;
     let patch: any;
@@ -244,7 +268,11 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
       patch = { state: (await fetchTrivia()) || { question: '', options: [], correct: 0, answers: {} }, turn: null, winner: null };
     else if (type === 'ludo')
       patch = { state: { tokens: { [me]: [-1, -1, -1, -1], [other]: [-1, -1, -1, -1] }, turn: me, die: null, phase: 'roll' }, turn: me, winner: null };
-    else patch = { state: { choices: {}, round: (game.state?.round || 1) + 1 }, turn: null, winner: null };
+    else if (type === 'chess') {
+      const init = initialState();
+      const white = me < other ? me : other;
+      patch = { state: { ...init, white, black: white === me ? other : me, lastMove: null }, turn: null, winner: null };
+    } else patch = { state: { choices: {}, round: (game.state?.round || 1) + 1 }, turn: null, winner: null };
     setGame({ ...game, ...patch });
     api.updateGame(game.id, patch).catch(() => {});
   }
@@ -317,6 +345,62 @@ export default function GamePanel({ conversationId, type, me, other, otherName, 
               {winner && (
                 <button onClick={playAgain} className="rounded-2xl bg-white/15 px-7 py-3 text-sm font-bold active:scale-95">
                   🔄 Play again
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Chess: full-screen board --------------------------------------------
+  if (type === 'chess') {
+    const st = game?.state;
+    const myColor = st?.white === me ? 'w' : 'b';
+    const myTurn = st?.turn === myColor && !winner;
+    const checking = st && inCheck(st.board, st.turn);
+    const chessResult =
+      winner === 'draw'
+        ? 'Stalemate — draw 🤝'
+        : winner === me
+        ? 'Checkmate — you win! 🎉'
+        : winner
+        ? `Checkmate — ${otherName} wins 😤`
+        : '';
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col bg-gradient-to-b from-[#241a12] via-[#2e2116] to-[#3a2a1a] text-white">
+        <header className="safe-top flex items-center justify-between px-4 py-3">
+          <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-lg active:scale-90">
+            ←
+          </button>
+          <h2 className="text-base font-extrabold tracking-widest">♛ CHESS</h2>
+          <div className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold tabular-nums">
+            You {scores[me] || 0} · {scores[other] || 0}
+          </div>
+        </header>
+        <div className="flex flex-1 flex-col items-center justify-center gap-5 px-3 pb-6">
+          {error ? (
+            <div className="mx-4 rounded-2xl bg-amber-500/15 p-4 text-center text-sm text-amber-200">{error}</div>
+          ) : loading || !game ? (
+            <p className="text-sm text-white/60">Setting up the board…</p>
+          ) : (
+            <>
+              <p className="text-xs font-medium text-white/55">You play {myColor === 'w' ? '♙ White' : '♟ Black'}</p>
+              <ChessBoard game={game} me={me} onMove={chessMove} />
+              <div className="text-center">
+                {winner ? (
+                  <p className="text-lg font-extrabold">{chessResult}</p>
+                ) : (
+                  <p className={`text-base font-bold ${checking ? 'text-red-300' : 'text-white/80'}`}>
+                    {checking ? '⚠️ Check! ' : ''}
+                    {myTurn ? 'Your move' : `${otherName} is thinking…`}
+                  </p>
+                )}
+              </div>
+              {winner && (
+                <button onClick={playAgain} className="rounded-2xl bg-white/15 px-7 py-3 text-sm font-bold active:scale-95">
+                  🔄 Rematch
                 </button>
               )}
             </>
