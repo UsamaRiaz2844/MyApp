@@ -4,7 +4,7 @@ import { fetchReels, reelsConfigured, type Reel } from '../lib/reels';
 // Full-screen vertical, swipe-up Reels feed (YouTube Shorts). Only the active
 // slide mounts an autoplaying iframe; the rest show their thumbnail, so audio
 // never overlaps and it stays light.
-export default function ReelsView({ onClose }: { onClose: () => void }) {
+export default function ReelsView({ onClose, onShare }: { onClose: () => void; onShare?: (reel: Reel) => void }) {
   const [reels, setReels] = useState<Reel[]>([]);
   const [active, setActive] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -80,10 +80,21 @@ export default function ReelsView({ onClose }: { onClose: () => void }) {
                   </div>
                 </>
               )}
-              <div className="pointer-events-none absolute bottom-6 left-4 right-16 z-[1]">
+              <div className="pointer-events-none absolute bottom-6 left-4 right-20 z-[1]">
                 <p className="line-clamp-2 text-sm font-semibold text-white drop-shadow">{r.title}</p>
                 <p className="mt-0.5 text-xs text-white/70">@{r.channel}</p>
               </div>
+              {onShare && i === active && (
+                <button
+                  onClick={() => onShare(r)}
+                  className="absolute bottom-8 right-3 z-[2] flex flex-col items-center gap-1 active:scale-90"
+                >
+                  <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white/20 text-2xl backdrop-blur">
+                    📤
+                  </span>
+                  <span className="text-[10px] font-semibold text-white">Share</span>
+                </button>
+              )}
             </div>
           ))}
           {loading && <div className="flex h-16 items-center justify-center text-xs text-white/50">Loading more…</div>}
