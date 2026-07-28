@@ -42,6 +42,7 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 interface LocationState {
   otherUser?: OtherUser;
+  prefill?: string;
 }
 
 export default function ChatRoom() {
@@ -56,7 +57,7 @@ export default function ChatRoom() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [reactions, setReactions] = useState<ReactionMap>({});
   const [loading, setLoading] = useState(true);
-  const [text, setText] = useState('');
+  const [text, setText] = useState(state?.prefill || '');
   const [whisper, setWhisper] = useState(false);
   const [otherTyping, setOtherTyping] = useState(false);
   const [otherTypingText, setOtherTypingText] = useState('');

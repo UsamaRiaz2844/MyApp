@@ -52,6 +52,7 @@ export default function ChatList() {
   const [myDay, setMyDay] = useState(() => loadMyDay());
   const [showAppearance, setShowAppearance] = useState(false);
   const [showReels, setShowReels] = useState(false);
+  const [shareReel, setShareReel] = useState<{ id: string; title: string } | null>(null);
   const [notifPerm, setNotifPerm] = useState<NotificationPermission>(notifyPermission());
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressed = useRef(false);
@@ -197,6 +198,26 @@ export default function ChatList() {
   function openExisting(c: ConversationSummary) {
     if (longPressed.current) return;
     navigate(`/chat/${c.id}`, { state: { otherUser: c.otherUser } });
+  }
+
+  function reelText(reel: { id: string; title: string }) {
+    return `📱 ${reel.title}\nhttps://www.youtube.com/shorts/${reel.id}`;
+  }
+  function onShareReel(reel: { id: string; title: string }) {
+    const text = reelText(reel);
+    if (conversations.length === 1) {
+      const c = conversations[0];
+      setShowReels(false);
+      navigate(`/chat/${c.id}`, { state: { otherUser: c.otherUser, prefill: text } });
+    } else {
+      setShareReel(reel);
+    }
+  }
+  function shareTo(c: ConversationSummary) {
+    const text = shareReel ? reelText(shareReel) : '';
+    setShareReel(null);
+    setShowReels(false);
+    navigate(`/chat/${c.id}`, { state: { otherUser: c.otherUser, prefill: text } });
   }
 
   function startPress(c: ConversationSummary) {
@@ -503,7 +524,32 @@ export default function ChatList() {
         />
       )}
       {showAppearance && <AppearanceSheet onClose={() => setShowAppearance(false)} />}
-      {showReels && <ReelsView onClose={() => setShowReels(false)} />}
+      {showReels && <ReelsView onClose={() => setShowReels(false)} onShare={onShareReel} />}
+      {shareReel && (
+        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShareReel(null)}>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="safe-bottom w-full max-w-md animate-sheet-up rounded-t-3xl bg-white p-5 shadow-2xl dark:bg-[#15161d]"
+          >
+            <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-slate-300 dark:bg-white/20" />
+            <h2 className="mb-3 text-base font-bold text-slate-900 dark:text-white">Share reel to…</h2>
+            <div className="space-y-1.5">
+              {conversations.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => shareTo(c)}
+                  className="flex w-full items-center gap-3 rounded-2xl bg-slate-50 px-3 py-2.5 text-left active:scale-[0.98] dark:bg-white/[0.05]"
+                >
+                  <Avatar name={c.otherUser?.displayName || c.otherUser?.username || '?'} color={c.otherUser?.avatarColor || '#6366f1'} src={c.otherUser?.avatarUrl} size={38} />
+                  <span className="font-semibold text-slate-800 dark:text-white">
+                    {getNickname(c.otherUser?.id) || `@${c.otherUser?.username}`}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
