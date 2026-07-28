@@ -19,6 +19,7 @@ import MoodPicker from '../components/MoodPicker';
 import ActivityPicker from '../components/ActivityPicker';
 import DaySlider from '../components/DaySlider';
 import AppearanceSheet from '../components/AppearanceSheet';
+import ReelsView from '../components/ReelsView';
 import type { ConversationSummary, OtherUser } from '../types';
 
 // Preview text for the chat list — encrypted last messages show a lock instead
@@ -50,6 +51,7 @@ export default function ChatList() {
   const [showDay, setShowDay] = useState(false);
   const [myDay, setMyDay] = useState(() => loadMyDay());
   const [showAppearance, setShowAppearance] = useState(false);
+  const [showReels, setShowReels] = useState(false);
   const [notifPerm, setNotifPerm] = useState<NotificationPermission>(notifyPermission());
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressed = useRef(false);
@@ -233,6 +235,13 @@ export default function ChatList() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowReels(true)}
+              title="Reels"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-lg active:scale-95 dark:bg-white/10"
+            >
+              📱
+            </button>
             <ThemeToggle />
             <div className="relative">
               <button onClick={() => setMenuOpen((v) => !v)} className="active:scale-95">
@@ -494,6 +503,7 @@ export default function ChatList() {
         />
       )}
       {showAppearance && <AppearanceSheet onClose={() => setShowAppearance(false)} />}
+      {showReels && <ReelsView onClose={() => setShowReels(false)} />}
     </div>
   );
 }
